@@ -6,8 +6,7 @@
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) { fprintf(stderr, "usage: pfctl restart|tone|stop|dump|levels|notone|\"delay N\"|\"tone N\"|\"rate N\"
-"); return 2; }
+    if (argc != 2) { fprintf(stderr, "usage: pfctl restart|tone|stop|dump|levels|notone|\"delay N\"|\"tone N\"|\"rate N\"\n"); return 2; }
     io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI"));
     if (!svc) { fprintf(stderr, "ProFireOHCI service not found\n"); return 1; }
     CFStringRef cmd = CFStringCreateWithCString(NULL, argv[1], kCFStringEncodingUTF8);
