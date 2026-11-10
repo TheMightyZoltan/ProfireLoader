@@ -111,6 +111,18 @@ If the ProFire's GUID and vendor show up, the bus, DMA through the Thunderbolt I
 and async transactions all work. Stage 2 is the DICE protocol: reading the DICE register
 space, sample rate and clock, and the stream format.
 
+## Result of the first run (2026-11-10)
+
+It works: see [docs/stage1-first-run.log](docs/stage1-first-run.log). Highlights:
+
+- The FW643 came up as OHCI 1.10. DMA buffers were mapped through the Thunderbolt IOMMU at `0x80000000`.
+- On the first bus reset there were two nodes. The Mac's FW643 (S800) is root and cycle master, and the ProFire is a 1394a node at S400 and IRM-capable.
+- The ProFire's config ROM read cleanly (31 quadlets). GUID `000d6c0404000002`, where `04` is the DICE category. Vendor "M-Audio", model `0x10` "ProFire 2626", unit spec `0x000d6c`, unit SW version `0x0100c1`.
+
+Two fixes were needed to get here:
+- **`IOPCITunnelCompatible`:** without this key, macOS won't match a driver to a PCI device that sits behind Thunderbolt (`IOPCITunnelled = Yes`).
+- **`/usr/bin/log`:** zsh has a builtin called `log`, so in scripts you have to call `/usr/bin/log` explicitly.
+
 ## Known risks in this stage
 
 - **Compiles but has never run.** The first load on real hardware is the real test.

@@ -1,0 +1,23 @@
+2026-11-10 20:25:23.687 attached to PCI 11c1:5901, command 0x0000 -> 0x0006
+2026-11-10 20:25:23.687 BAR0: memory index 0, size 4096, type 0
+2026-11-10 20:25:23.687 DMA: misc @0x80000000, AR buffer @0x80008000
+2026-11-10 20:25:23.687 OHCI version 1.10 (raw 0x00010010), GUID_ROM 0
+2026-11-10 20:25:23.762 ==== bus reset: generation 1 (buffer 1), local node 0xffc1 phy 1 ROOT, 5 self-ID quadlets ====
+2026-11-10 20:25:23.762   phy 0: link on, gap 63, speed S400, contender 1, power 4, ports [x parent -]
+2026-11-10 20:25:23.762   phy 1: link on, gap 63, speed S800, contender 0, power 4, ports [child x x]  <- this Mac
+2026-11-10 20:25:23.762 ---- node 0 (0xffc0): reading config ROM ----
+2026-11-10 20:25:23.770 bus_name 0x31333934 ("1394")  bus options 0xe0ff8112
+2026-11-10 20:25:23.770   irmc 1 cmc 1 isc 1 bmc 0 pmc 0 max_rec 8 (=512 bytes) link S400
+2026-11-10 20:25:23.770 GUID 000d6c0404000002  vendor OUI 0x000d6c (M-Audio)
+2026-11-10 20:25:23.774   Module_Vendor_ID (0x03) = 0x000d6c
+2026-11-10 20:25:23.782     text: "M-Audio"
+2026-11-10 20:25:23.783   Model_ID (0x17) = 0x000010
+2026-11-10 20:25:23.793     text: "ProFire 2626"
+2026-11-10 20:25:23.795   Node_Capabilities (0x0c) = 0x0087c0
+2026-11-10 20:25:23.796   Unit_Directory (0xd1) -> directory @q12
+2026-11-10 20:25:23.800       Unit_Spec_ID (0x12) = 0x000d6c
+2026-11-10 20:25:23.801       Unit_SW_Version (0x13) = 0x0100c1
+2026-11-10 20:25:23.803       Model_ID (0x17) = 0x000010
+2026-11-10 20:25:23.804       Textual_Descriptor (0x81) -> leaf @q28
+2026-11-10 20:25:23.812         text: "ProFire 2626"
+2026-11-10 20:25:23.812 ---- node 0: done, 31 ROM quadlets read ----
