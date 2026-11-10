@@ -15,11 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>DEXT</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>4</string>
-	<key>OSBundleUsageDescription</key>
-	<string>FireWire (OHCI 1394) audio driver for the M-Audio ProFire 2626.</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>IOKitPersonalities</key>
 	<dict>
 		<key>ProFireOHCI</key>
@@ -30,12 +28,14 @@
 			<string>com.apple.kpi.iokit</string>
 			<key>IOClass</key>
 			<string>IOUserService</string>
-			<key>IOProviderClass</key>
-			<string>IOPCIDevice</string>
 			<key>IOPCIMatch</key>
 			<string>0x590111c1</string>
 			<key>IOPCITunnelCompatible</key>
 			<true/>
+			<key>IOProbeScore</key>
+			<integer>12</integer>
+			<key>IOProviderClass</key>
+			<string>IOPCIDevice</string>
 			<key>IOUserClass</key>
 			<string>ProFireOHCI</string>
 			<key>IOUserServerName</key>
@@ -49,5 +49,7 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>OSBundleUsageDescription</key>
+	<string>FireWire (OHCI 1394) audio driver for the M-Audio ProFire 2626.</string>
 </dict>
 </plist>

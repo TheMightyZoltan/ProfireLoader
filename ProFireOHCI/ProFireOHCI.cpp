@@ -53,6 +53,7 @@ struct ProFireOHCI_IVars {
 
     bool streaming = false;
     bool restartPending = false;
+    uint32_t delayCycles = 48;
     int  isoCh[2 * Dice::kMaxStreams] = {};
     uint32_t isoBw[2 * Dice::kMaxStreams] = {};
     float *testIn = nullptr, *testOut = nullptr;
@@ -265,7 +266,7 @@ static kern_return_t startStreamingInternal(ProFireOHCI_IVars *iv)
     AmdtpEngine::Config cfg;
     cfg.rate = uint32_t(iv->rate);
     cfg.sfc = sfc;
-    cfg.transferDelayCycles = kTransferDelay;
+    cfg.transferDelayCycles = iv->delayCycles;
     cfg.nIn = int(d.numTx < uint32_t(iv->fw.numIR) ? d.numTx : uint32_t(iv->fw.numIR));
     cfg.nOut = int(d.numRx < uint32_t(iv->fw.numIT) ? d.numRx : uint32_t(iv->fw.numIT));
 
@@ -412,6 +413,21 @@ kern_return_t IMPL(ProFireOHCI, SetProperties)
         if (iv->diceFound) iv->dice.dump();
     } else if (cmd->isEqualTo("levels")) {
         iv->engine.levelLog = !iv->engine.levelLog;
+    } else if (cmd->isEqualTo("notone")) {
+        iv->engine.toneChannel = -1;
+    } else {
+        // "<word> <number>" commands
+        uint32_t n = 0; const char *p = c;
+        while (*p && *p != ' ') p++;
+        const char *num = p; while (*num == ' ') num++;
+        bool hasNum = *num >= '0' && *num <= '9';
+        for (const char *q = num; *q >= '0' && *q <= '9'; q++) n = n * 10 + uint32_t(*q - '0');
+        uint32_t wl = uint32_t(p - c);
+        auto is = [&](const char *w) { uint32_t i = 0; while (w[i] && i < wl && w[i] == c[i]) i++; return !w[i] && i == wl; };
+        if (hasNum && is("delay")) { iv->delayCycles = n; LOG("transfer delay -> %u cycles (applies on next start)", n); }
+        else if (hasNum && is("tone")) { iv->engine.toneChannel = int(n) - 1; LOG("tone -> output %u", n); }
+        else if (hasNum && is("rate")) { ChangeRate(double(n)); }
+        else return kIOReturnUnsupported;
     }
     return kIOReturnSuccess;
 }

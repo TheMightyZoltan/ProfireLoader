@@ -44,7 +44,7 @@ struct HostClock {
 
 // A DMA buffer that may consist of several IOVA segments (each page aligned).
 struct DmaBuf {
-    static constexpr uint32_t kMaxSegs = 64;
+    static constexpr uint32_t kMaxSegs = 32;
     IOBufferMemoryDescriptor *mem  = nullptr;
     IODMACommand             *dma  = nullptr;
     uint8_t                  *cpu  = nullptr;

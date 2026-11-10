@@ -19,17 +19,25 @@ command -v xcodegen >/dev/null || brew install xcodegen
 
 xcodegen generate -q
 
+# Every build gets a new version and a higher IOProbeScore, so the newest dext wins
+# matching even while macOS still has stale personalities of older versions.
+BUILDNUM=$(( $(cat .buildnum 2>/dev/null || echo 10) + 1 ))
+echo $BUILDNUM > .buildnum
+VERARGS=(MARKETING_VERSION="0.5.$BUILDNUM" CURRENT_PROJECT_VERSION="$BUILDNUM")
+echo "build $BUILDNUM (version 0.5.$BUILDNUM)"
+/usr/libexec/PlistBuddy -c "Set :IOKitPersonalities:ProFireOHCI:IOProbeScore $BUILDNUM" ProFireOHCI/Info.plist
+
 APP=build/Build/Products/Debug/ProFireLoader.app
 DEXT="$APP/Contents/Library/SystemExtensions/local.profire.Loader.ProFireOHCI.dext"
 
 if [[ -n "${TEAM:-}" ]]; then
   xcodebuild -project ProFireDriver.xcodeproj -scheme ProFireLoader -configuration Debug \
     -derivedDataPath build -allowProvisioningUpdates \
-    DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" build
+    DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" "${VERARGS[@]}" build
 else
   rm -rf "$APP"
   xcodebuild -project ProFireDriver.xcodeproj -scheme ProFireLoader -configuration Debug \
-    -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+    -derivedDataPath build CODE_SIGNING_ALLOWED=NO "${VERARGS[@]}" build
   # Inner bundle first, then the app that contains it.
   codesign --force --sign - --timestamp=none \
     --entitlements ProFireOHCI/ProFireOHCI.entitlements "$DEXT"
