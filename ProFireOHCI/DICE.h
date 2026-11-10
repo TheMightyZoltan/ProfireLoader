@@ -20,7 +20,7 @@ public:
     void releaseOwnership();
 
     uint32_t currentRate();                           // Hz from CLOCK_SELECT
-    bool setRate(uint32_t hz);                        // waits for clock accepted + lock
+    bool setRate(uint32_t hz, bool force = false);    // waits for clock accepted + lock
     bool readStreamFormats();
     uint32_t clockCaps = 0;
 
@@ -32,6 +32,15 @@ public:
     bool setRxChannel(int i, int channel);
     bool enable(bool on);
     bool locked();
+
+    // TCAT extended application space (EAP): router and stream configuration.
+    bool readExt();
+    void dumpRouter();
+    void peek(uint32_t lo, uint32_t count);
+    bool loadHostRouter();          // activate the stored host routing (EAP LD_ROUTER)
+    bool eapCommand(uint32_t opcode);
+    uint32_t ext[18] = {};
+    bool haveExt = false;
 
     uint32_t numTx = 0, numRx = 0;
     StreamFmt tx[kMaxStreams], rx[kMaxStreams];

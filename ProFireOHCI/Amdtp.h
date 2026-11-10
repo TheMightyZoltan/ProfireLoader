@@ -81,6 +81,22 @@ private:
 
     // stats
     uint64_t statLate = 0, statEmpty = 0, statPackets = 0, statResync = 0, statLastLog = 0;
+    uint64_t statMiss[kMaxStreams] = {}, statAhead[kMaxStreams] = {}, statBehind[kMaxStreams] = {}, statForced = 0;
+    uint64_t statNbShort[kMaxStreams] = {};
+
+    // SYT-based alignment of secondary receive streams to stream 0.
+    struct SytHist { uint16_t syt; uint64_t cycle; uint64_t frame; };
+    static constexpr int kHist = 64;
+    SytHist hist[kHist] = {};
+    int histPos = 0;
+    bool synced[kMaxStreams] = {};
+    uint64_t frameS[kMaxStreams] = {};
+    uint64_t statResyncS[kMaxStreams] = {};
+    void pumpSecondary(int s);
+    static uint64_t sytTicks(uint16_t syt, uint64_t cycleAbs);
+    bool impliedFrame(uint16_t syt, uint64_t cs, int64_t *frame);
+    uint32_t disagree[kMaxStreams] = {};
+    void writeInput(int s, const volatile uint32_t *payload, uint32_t dbs, uint32_t blocks, uint64_t firstFrame);
     float    peak[64] = {};
     double   tonePhase = 0;
 

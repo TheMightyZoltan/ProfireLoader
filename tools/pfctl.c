@@ -11,7 +11,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2) { fprintf(stderr, "usage: pfctl restart|tone|stop|dump|levels|notone|delay N|tone N|rate N\n"); return 2; }
     const char *w = argv[1];
-    unsigned arg = argc > 2 ? (unsigned)atoi(argv[2]) : 0;
+    unsigned arg = argc > 2 ? (unsigned)strtoul(argv[2], NULL, 0) : 0;
     char c = 0;
     if (!strcmp(w, "restart")) c = 'R';
     else if (!strcmp(w, "stop")) c = 'S';
@@ -23,6 +23,14 @@ int main(int argc, char **argv)
     else if (!strcmp(w, "rate")) { c = 'A'; arg /= 10; }
     else if (!strcmp(w, "itrestart")) c = 'I';
     else if (!strcmp(w, "raw")) c = 'W';
+    else if (!strcmp(w, "zts")) c = 'J';
+    else if (!strcmp(w, "busreset")) c = 'G';
+    else if (!strcmp(w, "reenable")) c = 'E';
+    else if (!strcmp(w, "noout")) c = 'Z';
+    else if (!strcmp(w, "router")) c = 'U';
+    else if (!strcmp(w, "loadrouter")) c = 'H';
+    else if (!strcmp(w, "peekb")) c = 'B';     // DICE base space, arg = quadlet index
+    else if (!strcmp(w, "peekx")) c = 'X';     // EAP space, arg = quadlet index
     else if (!strcmp(w, "itcm")) c = 'M';
     else { fprintf(stderr, "unknown command %s\n", w); return 2; }
     io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI"));

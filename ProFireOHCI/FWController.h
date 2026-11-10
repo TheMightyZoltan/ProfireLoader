@@ -41,6 +41,7 @@ public:
 
     // Physical (DMA-direct) requests from a node into our mapped buffers.
     void allowPhysicalFrom(int phy);
+    void forceBusReset();
 
     // A quadlet in mapped memory that remote nodes can write to (DICE notifications).
     uint32_t notifyIova() const;

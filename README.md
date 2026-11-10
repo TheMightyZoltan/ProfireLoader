@@ -1,166 +1,118 @@
-# ProFireDriver: stage 1
+# ProFireDriver
 
-An experimental DriverKit driver to get the **M-Audio ProFire 2626** (TCAT DICE II,
-FireWire 400) working again on Apple Silicon, where macOS no longer has a FireWire stack.
+A DriverKit audio driver that makes the **M-Audio ProFire 2626** (TCAT DICE II, FireWire 400)
+a working Core Audio sound card again on Apple Silicon. macOS no longer has a FireWire stack,
+so this driver includes its own: OHCI controller, async transactions, DICE control,
+isochronous AM824 streaming, and an AudioDriverKit device.
 
-This first stage has **no audio yet**. It answers a single question: can a user-space
-driver run the FireWire bus on this Mac and talk to the ProFire?
+## Status (2026-11-10)
 
-## Hardware this was written for
+- **Core Audio sees it:** "ProFire 2626", 26 in / 26 out, channel names come from the device.
+- **Sample rates:** 44.1, 48, 88.2 and 96 kHz work. 176.4 and 192 kHz aren't offered yet; they need DICE dual-wire handling.
+- **Measured with loopback cables:**
+  - Analog: output 8 → input 6.
+  - ADAT: optical out A → in B, bit-exact, 0 glitches in 60 s at 48 kHz.
+  - 1 kHz test tone at exactly 1000.0 Hz.
+- **Stream alignment:** ADAT (stream 1) is sample-aligned to the analog/S/PDIF stream (stream 0) by SYT presentation time. The DICE skews its two streams by 1024 ticks, and the driver compensates.
+- **Recovery:** a FireWire bus reset mid-stream is recovered in about 2 s. If the ProFire was power-cycled, recovery takes about 4 s, because its host routing has to be reloaded.
+
+## Hardware
 
 | Piece | Details |
 |---|---|
-| Mac | MacBook Pro, Apple Silicon (M1), macOS 27.0.1 |
-| FireWire controller | LSI/Agere **FW643** (`11c1:5901`, rev 08), FireWire 800 OHCI, inside the **Belkin Thunderbolt Express Dock** |
-| Device | M-Audio ProFire 2626, connected with a FW800 → FW400 cable |
+| Mac | MacBook Pro M1, macOS 27.0.1 |
+| FireWire controller | LSI FW643 (`11c1:5901` rev 08) in a **Belkin Thunderbolt Express Dock** |
+| Device | M-Audio ProFire 2626 over FW800 → FW400 |
 
-The driver matches only the FW643 (`IOPCIMatch 0x590111c1`).
+The dext matches only the FW643 (`IOPCIMatch 0x590111c1`, `IOPCITunnelCompatible`).
 
-## What the driver does
+## How it works
 
-1. Takes over the FW643 over PCIe (through Thunderbolt), turns on bus mastering and maps the registers.
-2. Soft-resets the OHCI controller, powers up the link, and installs a minimal local config ROM, a self-ID buffer, one async-transmit context and one async-receive context.
-3. Forces a bus reset and decodes the self-ID packets, which lists every node on the bus.
-4. Reads each other node's config ROM with quadlet read requests and logs its GUID, vendor and model, unit directory and text descriptors.
+| File | Role |
+|---|---|
+| `ProFireOHCI/FWController.*` | OHCI bring-up, bus resets/self-IDs, config ROM, async read/write/lock (32/64-bit compare-swap), physical-DMA notifications |
+| `ProFireOHCI/Dice.*`, `DiceRegs.h` | DICE ownership, clock select, stream formats, IRM channel/bandwidth allocation, EAP router + stream config load |
+| `ProFireOHCI/Amdtp.*` | IR/IT DMA rings (packet-per-buffer, 256 packets each), AM824 encode/decode, timestamps |
+| `ProFireOHCI/ProFireOHCI.*` | `IOUserAudioDriver`: discovery, Core Audio device, start/stop, rate changes, developer commands |
+| `ProFireOHCI/ProFireAudioDevice.*` | `IOUserAudioDevice` subclass forwarding StartIO/StopIO/rate changes |
+| `ProFireLoader/` | SwiftUI app that installs the dext (`--activate` / `--deactivate`) |
+| `tools/pfctl.c` | developer commands to the running driver |
+| `tools/pftest.swift` | Core Audio loopback test: tone on one output, peaks for all inputs, glitch analysis of one input |
+| `tools/deploy.sh` | install + activate + hands-free switch to the new build |
 
-It polls every 20 ms and uses no interrupts. Each later bus reset (for example plugging in or switching on the ProFire) triggers a new scan.
+### Streaming design
 
-## Files
+- **Device → Mac:** one IR context per DICE TX stream, polled every 1 ms. Samples are converted from 24-bit to float32 into Core Audio's input ring (4096 frames, which is also the zero-timestamp period). Zero timestamps come from IR packet cycle stamps mapped to host time through the OHCI cycle timer.
+- **Mac → device:** one IT context per DICE RX stream. Each received cycle is replayed 48 cycles (6 ms) later with the same data-block count and its SYT shifted by the same delay. That keeps the outgoing streams locked to the ProFire's media clock, the approach Linux uses for DICE.
+- **Secondary RX streams** keep their own sequential frame counter. It's anchored to stream 0 by SYT presentation time (only from 100 ms after start) and checked against every full packet.
 
-- `ProFireOHCI/ProFireOHCI.iig`, `ProFireOHCI.cpp`: the dext
-- `ProFireOHCI/OHCI.h`: OHCI 1.1 register map and descriptor format
-- `ProFireOHCI/Info.plist`, `ProFireOHCI.entitlements`: matching personality and DriverKit entitlements
-- `ProFireLoader/`: tiny SwiftUI app that installs and uninstalls the dext
-- `project.yml`: XcodeGen spec. `build.sh` generates `ProFireDriver.xcodeproj` from it and builds.
+## Things the ProFire needs (learned the hard way)
 
-## 1. Install Xcode
+1. **Re-select the clock right after taking ownership,** even if the rate doesn't change. Without that the DICE transmits all-zero audio slots. Linux snd-dice does the same, with the comment "selecting clock parameters have an effect for the unit to refine it".
+2. **Load the host router and stream config** (EAP `LD_ROUTER`, `LD_STRM_CFG` for the low/mid/high modes) from the device's stored current config. At power-on it runs its standalone routing, which doesn't feed the FireWire streams.
+3. **Front-panel master volume knob:** application space `[0] = 0x0f` puts all four output pairs under the knob, so output level follows the knob.
 
-Install the full Xcode from the App Store (it includes the DriverKit SDK), then:
+## DriverKit / macOS lessons
 
-```bash
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-```
+- **`IOPCITunnelCompatible`** is required for PCI devices behind Thunderbolt.
+- **`IOUserAudioDriverUserClientProperties`** in the personality is what lets Core Audio discover the device. `UserClientProperties` alone isn't enough.
+- **No page-crossing descriptor blocks:** OHCI can't fetch a descriptor block that crosses a 4 KiB page (`evt_descriptor_read`). IT blocks are padded to 64 bytes.
+- **IT skip address** points at its own block, as in Linux.
+- **Dext logs only show live:** use `/usr/bin/log stream` (zsh has its own `log`). `log show` doesn't have them.
+- **SetProperties doesn't reach an `IOUserAudioDriver`,** so developer commands go through `IOServiceOpen` types handled in `NewUserClient`.
+- **Upgrades:** macOS won't stop an in-use PCI dext. `pfctl restart` makes it `abort()`, DriverKit relaunches it with the newest personality (each build raises `IOProbeScore` to 10000 + build), and the kernel allows 5 crashes per boot. sysextd sometimes keeps a "terminating" entry until reboot ("activateDecision found two entries"), and then a reboot is needed before the next activation.
 
-## 2. Build
+## Build and install
 
-```bash
-./build.sh
-```
-
-By default the script builds unsigned and then ad-hoc signs the dext and the app with
-`codesign`, so no Apple Developer team is needed. (Xcode itself refuses to ad-hoc sign the
-restricted DriverKit entitlements.) The build has compiled cleanly with Xcode 27.2 and
-DriverKit 27.2.
-
-## 3. Allow an unsigned driver (testing only)
-
-The DriverKit PCI entitlement is restricted by Apple, so for local testing:
-
-1. Shut down. Hold the power button until "Loading startup options" appears, then choose **Options**.
-2. In Recovery, open **Utilities › Terminal** and run `csrutil disable`, then restart.
-3. Back in macOS:
+Requirements: full Xcode with the DriverKit SDK, **SIP disabled** and `systemextensionsctl developer on`. The dext is ad-hoc signed, and Apple would have to grant the DriverKit PCI and audio entitlements for it to run with SIP on.
 
 ```bash
-systemextensionsctl developer on
+./build.sh            # builds, bumps the version and probe score, ad-hoc signs, builds pfctl
+tools/deploy.sh       # installs to /Applications, activates, switches to the new build, prints the log
 ```
 
-To undo this later: `systemextensionsctl developer off`, then run `csrutil enable` from Recovery.
+The first install needs approval in **System Settings › General › Login Items & Extensions › Driver Extensions**. After that the driver loads at boot.
 
-## 4. Load it and watch the log
-
-Start the log stream in one Terminal window **first**:
+## Developer commands
 
 ```bash
-log stream --level debug --predicate 'eventMessage CONTAINS "ProFireOHCI"'
+build/pfctl dump                 # DICE clock/stream summary
+build/pfctl tone                 # start streams with a 1 kHz tone on output 8 + input level logging
+build/pfctl tone 11              # tone on another output (1-based)
+build/pfctl stop
+build/pfctl router               # dump EAP sections and routers
+build/pfctl peekx 0x13a          # read 16 quadlets of EAP space (quadlet index); peekb for DICE base space
+build/pfctl raw                  # log raw contents of the next received packets
+build/pfctl busreset             # force a FireWire bus reset
+build/pfctl zts                  # toggle zero-timestamp logging
+build/pfctl restart              # exit; DriverKit relaunches the newest installed version
+build/pftest 8 10 -12 6          # Core Audio: tone on out 8 for 10 s at -12 dBFS, analyse in 6
+build/pftest 11 60 -12 19 48000  # ADAT A->B loop at 48 kHz for 60 s
 ```
 
-Then:
+Live log:
 
 ```bash
-rm -rf /Applications/ProFireLoader.app && cp -R build/Build/Products/Debug/ProFireLoader.app /Applications/ && open /Applications/ProFireLoader.app
+/usr/bin/log stream --level debug --predicate 'eventMessage CONTAINS "ProFireOHCI"'
 ```
 
-Click **Install / Activate**. If macOS asks, approve the driver in **System Settings ›
-General › Login Items & Extensions › Driver Extensions**.
+## Known gaps
 
-Check that it's attached:
-
-```bash
-systemextensionsctl list
-```
-
-```bash
-ioreg -l -w0 -r -n 'pci11c1,5901@0' | grep -E '\+-o|IOUserClass'
-```
-
-## What success looks like
-
-```
-ProFireOHCI: attached to PCI 11c1:5901 ...
-ProFireOHCI: OHCI version 1.10 ...
-ProFireOHCI: ==== bus reset: generation 1 ..., 2 self-ID quadlets ... ====
-ProFireOHCI:   phy 0: link on, ... <- this Mac
-ProFireOHCI:   phy 1: link on, ...
-ProFireOHCI: ---- node 1 (0xffc1): reading config ROM ----
-ProFireOHCI: GUID 000d6c.......  vendor OUI 0x000d6c (M-Audio)
-ProFireOHCI:   Model_ID (0x17) = 0x......
-...
-```
-
-If the ProFire's GUID and vendor show up, the bus, DMA through the Thunderbolt IOMMU,
-and async transactions all work. Stage 2 is the DICE protocol: reading the DICE register
-space, sample rate and clock, and the stream format.
-
-## Result of the first run (2026-11-10)
-
-It works: see [docs/stage1-first-run.log](docs/stage1-first-run.log). Highlights:
-
-- The FW643 came up as OHCI 1.10. DMA buffers were mapped through the Thunderbolt IOMMU at `0x80000000`.
-- On the first bus reset there were two nodes. The Mac's FW643 (S800) is root and cycle master, and the ProFire is a 1394a node at S400 and IRM-capable.
-- The ProFire's config ROM read cleanly (31 quadlets). GUID `000d6c0404000002`, where `04` is the DICE category. Vendor "M-Audio", model `0x10` "ProFire 2626", unit spec `0x000d6c`, unit SW version `0x0100c1`.
-
-Two fixes were needed to get here:
-- **`IOPCITunnelCompatible`:** without this key, macOS won't match a driver to a PCI device that sits behind Thunderbolt (`IOPCITunnelled = Yes`).
-- **`/usr/bin/log`:** zsh has a builtin called `log`, so in scripts you have to call `/usr/bin/log` explicitly.
-
-## Stage 2a: DICE register dump (2026-11-10)
-
-The driver now also dumps the DICE registers of any node whose GUID category is `0x04`.
-The full dump is in [docs/stage2a-dice-dump.log](docs/stage2a-dice-dump.log). Highlights:
-
-- Nickname "FW2626", DICE interface 1.0.4.0, no owner. Clock is Internal at 48 kHz, locked, and not streaming.
-- **Rates:** 32k–192k.
-- **Clock sources:** SPDIF, AES_ANY, ADAT, ADAT_AUX, Word Clock, ARX1/2, Internal.
-- **Device → Mac (2 streams):**
-  - Stream 0: Mic-Line 1–8, SPDIF L/R, plus 1 MIDI.
-  - Stream 1: ADAT 1–16.
-  - 26 inputs in total at 48k.
-- **Mac → device (2 streams):**
-  - Stream 0: Line 1–8, SPDIF L/R, plus 1 MIDI.
-  - Stream 1: ADAT 1–16.
-- **TCAT extension present:** router, mixer, peak meters, stream config, current config and standalone config. This is a DICE II/Jr-style device with a programmable router.
-
-Upgrading a running dext: macOS won't stop an in-use PCI dext ("Failed to terminate dext … being replaced"). The new version takes over after a reboot, or after unplugging and replugging the Thunderbolt dock.
-
-## Known risks in this stage
-
-- **Compiles but has never run.** The first load on real hardware is the real test.
-- **Ad-hoc signing with SIP off** is how Apple documents testing without entitlements. If activation still refuses, the fallback is the boot-arg `amfi_get_out_of_my_way=1`. That loosens code-signing checks for the whole system, so only use it for testing.
-- **Power-on ordering.** Switch the ProFire on before activating the driver, or switch it on afterwards and let the bus reset trigger a new scan.
+- **176.4/192 kHz:** not offered. Needs dual-wire handling.
+- **88.2/96 kHz:** the ADAT ports run in S/MUX, so the device keeps 26 channels and some ADAT channels are silent or mapped differently at these rates.
+- **CLOCK_ACCEPTED notifications** don't arrive at the physical-DMA notification address. Clock changes are confirmed by polling lock status instead.
+- **MIDI** ports are carried as empty slots and not yet exposed.
+- **Startup:** a handful of glitch samples can occur in the first moments after a stream starts.
+- **No mixer/control panel.** The router follows the device's stored host configuration.
 
 ## Reference material
 
-`reference/m-audio-2.4.4/` (gitignored, M-Audio's copyright) has M-Audio's original
-kext from the Mac 2.4.4 package, the mixer app's device descriptions, and the 2626
-firmware image. The kext's `Info.plist` confirms vendor `0x000D6C` and model `0x10` for
-the 2626. Its class names show what the later stages need: DICE register get/set, DICE
-opcodes, separate isochronous input and output programs, and a 2626-only optical port B
-mode switch (ADAT vs S/PDIF).
+`reference/m-audio-2.4.4/` (gitignored, M-Audio's copyright) has the original 2.4.4 kext,
+the mixer app's device descriptions, and the 2626 firmware image. Useful external references:
+Linux `sound/firewire/dice/*` and FFADO `src/dice/` (including `src/dice/maudio/profire_2626.*`).
 
 ## Uninstall
 
-Click **Uninstall** in the app, or:
-
 ```bash
-systemextensionsctl uninstall - local.profire.Loader.ProFireOHCI
+open /Applications/ProFireLoader.app --args --deactivate
 ```

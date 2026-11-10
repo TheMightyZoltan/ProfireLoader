@@ -216,6 +216,9 @@ kern_return_t AmdtpEngine::start(FWController *f, const Config &c)
     lastAbs = 64000 + ((ct >> 25) % 8) * 8000 + ((ct >> 12) & 0x1FFF);
     refHost = clock.now(); refCycle = double(lastAbs);
     inSample = 0; gotFirst = false; itStarted = false; layout = -1;
+    histPos = 0;
+    for (int i = 0; i < kHist; i++) hist[i] = {0xFFFF, 0, 0};
+    for (int i = 0; i < kMaxStreams; i++) { synced[i] = false; frameS[i] = 0; statResyncS[i] = 0; disagree[i] = 0; }
     statLate = statEmpty = statPackets = statResync = 0; statLastLog = 0;
     for (int i = 0; i < 64; i++) peak[i] = 0;
     for (int s = 0; s < cfg.nIn; s++) programIR(s);
@@ -264,6 +267,105 @@ void AmdtpEngine::checkITDead()
     }
 }
 
+
+// Write one packet's PCM into the Core Audio input ring at firstFrame.
+void AmdtpEngine::writeInput(int s, const volatile uint32_t *payload, uint32_t dbs, uint32_t blocks, uint64_t firstFrame)
+{
+    if (!inRing || !blocks) return;
+    uint32_t chanOff = 0;
+    for (int i = 0; i < s; i++) chanOff += cfg.in[i].pcm;
+    uint32_t pcm = cfg.in[s].pcm;
+    for (uint32_t b = 0; b < blocks; b++) {
+        float *dst = inRing + ((firstFrame + b) % ringFrames) * inChannels + chanOff;
+        const volatile uint32_t *q = payload + 2 + b * dbs;
+        for (uint32_t k = 0; k < pcm && chanOff + k < inChannels; k++) {
+            float x = 0.0f;
+            if (k < dbs) {
+                uint32_t qd = be(q[k]);
+                x = float(int32_t(qd << 8) >> 8) * (1.0f / 8388608.0f);
+            }
+            dst[k] = x;
+            float a = x < 0 ? -x : x;
+            if (chanOff + k < 64 && a > peak[chanOff + k]) peak[chanOff + k] = a;
+        }
+    }
+}
+
+// SYT (4-bit cycle | 12-bit offset in 24.576 MHz ticks) -> absolute ticks, choosing the cycle
+// nearest to (and normally a few cycles after) the packet's own cycle.
+uint64_t AmdtpEngine::sytTicks(uint16_t syt, uint64_t cycleAbs)
+{
+    uint64_t sc = (syt >> 12) & 0xF;
+    uint64_t cand = (cycleAbs & ~uint64_t(15)) + sc;
+    if (cand + 4 < cycleAbs) cand += 16;
+    else if (cand > cycleAbs + 12) cand -= 16;
+    return cand * 3072 + (syt & 0xFFF);
+}
+
+// Stream-0 frame that is presented at the same time as a stream-s packet's first block.
+bool AmdtpEngine::impliedFrame(uint16_t syt, uint64_t cs, int64_t *frame)
+{
+    int best = -1; uint64_t bestDist = ~0ull;
+    for (int i = 0; i < kHist; i++) {
+        const SytHist &h = hist[i];
+        if (h.syt == 0xFFFF) continue;
+        uint64_t dist = h.cycle > cs ? h.cycle - cs : cs - h.cycle;
+        if (dist < bestDist) { bestDist = dist; best = i; }
+    }
+    if (best < 0 || bestDist > 6) return false;
+    int64_t t1 = int64_t(((syt >> 12) & 0xF) * 3072 + (syt & 0xFFF));
+    int64_t t0 = int64_t(((hist[best].syt >> 12) & 0xF) * 3072 + (hist[best].syt & 0xFFF));
+    int64_t expect = (int64_t(cs) - int64_t(hist[best].cycle)) * 3072;
+    int64_t d = expect + (((t1 - t0 - expect) % 49152 + 49152 + 24576) % 49152 - 24576);
+    double tpf = 24576000.0 / double(cfg.rate);
+    *frame = int64_t(hist[best].frame) + int64_t(double(d) / tpf + (d >= 0 ? 0.5 : -0.5));
+    return true;
+}
+
+// Secondary receive streams: sequential frame counter, anchored to stream 0 by matching SYT.
+void AmdtpEngine::pumpSecondary(int s)
+{
+    for (uint32_t budget = 0; budget < kSlots; budget++) {
+        uint32_t ts = 0, bytes = 0;
+        const volatile uint32_t *p = nullptr;
+        if (!peekIR(s, &ts, &p, &bytes)) return;
+        uint64_t cs = unwrap(ts, lastAbs);
+        if (cs > lastAbs) return;                       // stream 0 hasn't reached this cycle yet
+
+        uint32_t cip0 = be(p[0]), cip1 = be(p[1]);
+        uint32_t dbs = (cip0 >> 16) & 0xFF, fdf = (cip1 >> 16) & 0xFF;
+        uint16_t syt = uint16_t(cip1 & 0xFFFF);
+        uint32_t blocks = (dbs && fdf != 0xFF && bytes >= 8) ? (bytes - 8) / (dbs * 4) : 0;
+
+        int64_t imp = 0;
+        bool haveImp = blocks && syt != 0xFFFF && inSample >= cfg.rate / 10 && impliedFrame(syt, cs, &imp);
+        if (!synced[s] && haveImp) {
+            frameS[s] = uint64_t(imp); synced[s] = true; statResyncS[s]++; disagree[s] = 0;
+            LOG("IR%d anchored at frame %lld (stream 0 at %llu)", s, imp, inSample);
+        } else if (synced[s] && haveImp) {
+            int64_t e = imp - int64_t(frameS[s]);
+            if (e > 2 || e < -2) {
+                if (++disagree[s] >= 50) {
+                    LOG("IR%d alignment off by %lld frames, re-anchoring", s, e);
+                    frameS[s] = uint64_t(imp); disagree[s] = 0; statResyncS[s]++;
+                }
+            } else disagree[s] = 0;
+        }
+        if (synced[s] && blocks) {
+            // Stay within half a ring of stream 0, otherwise re-anchor.
+            int64_t lag = int64_t(inSample) - int64_t(frameS[s]);
+            if (lag < -int64_t(ringFrames / 4) || lag > int64_t(ringFrames / 2)) {
+                synced[s] = false;
+                LOG("IR%d drifted (lag %lld frames), re-anchoring", s, lag);
+            } else {
+                writeInput(s, p, dbs, blocks, frameS[s]);
+                frameS[s] += blocks;
+            }
+        }
+        releaseIR(s);
+    }
+}
+
 void AmdtpEngine::pump()
 {
     if (!active || cfg.nIn == 0) return;
@@ -296,24 +398,8 @@ void AmdtpEngine::pump()
         if (!peekIR(0, &ts0, &p0, &bytes0)) break;
         uint64_t C = unwrap(ts0, lastAbs);
 
-        // Align the other receive streams to the same cycle.
         const volatile uint32_t *ps[kMaxStreams] = { p0 };
         uint32_t bytes[kMaxStreams] = { bytes0 };
-        bool have[kMaxStreams] = { true };
-        bool waitMore = false;
-        bool lagging = reinterpret_cast<volatile Descriptor *>(ir[0].desc.cpu + ((irRead[0] + 16) % kSlots) * 16)->transferStatus != 0;
-        for (int s = 1; s < cfg.nIn; s++) {
-            have[s] = false;
-            for (int guard = 0; guard < int(kSlots); guard++) {
-                uint32_t ts = 0, b = 0; const volatile uint32_t *p = nullptr;
-                if (!peekIR(s, &ts, &p, &b)) { if (!lagging) waitMore = true; break; }
-                uint64_t cs = unwrap(ts, C);
-                if (cs < C) { releaseIR(s); continue; }
-                if (cs == C) { ps[s] = p; bytes[s] = b; have[s] = true; }
-                break;
-            }
-        }
-        if (waitMore) break;
 
         uint32_t cip0 = be(p0[0]), cip1 = be(p0[1]);
         uint32_t dbs0 = (cip0 >> 16) & 0xFF, fdf = (cip1 >> 16) & 0xFF;
@@ -326,38 +412,16 @@ void AmdtpEngine::pump()
             LOG("raw IR0 cyc %llu bytes %u: cip %08x %08x | %08x %08x %08x %08x %08x %08x | %08x %08x %08x %08x %08x %08x",
                 C, bytes0, cip0, cip1, be(p0[2]), be(p0[3]), be(p0[4]), be(p0[5]), be(p0[6]), be(p0[7]),
                 be(p0[8]), be(p0[9]), be(p0[10]), be(p0[11]), be(p0[12]), be(p0[13]));
-            if (cfg.nIn > 1 && have[1])
-                LOG("raw IR1 bytes %u: cip %08x %08x | %08x %08x %08x %08x", bytes[1], be(ps[1][0]), be(ps[1][1]),
-                    be(ps[1][2]), be(ps[1][3]), be(ps[1][4]), be(ps[1][5]));
+
             LOG("raw dbs %u fdf 0x%02x syt 0x%04x blocks %u inRing %p inCh %u", dbs0, fdf, syt, blocks, inRing, inChannels);
         }
 
-        // Input samples.
-        uint32_t chanOff = 0;
-        for (int s = 0; s < cfg.nIn; s++) {
-            uint32_t pcm = cfg.in[s].pcm;
-            if (inRing && blocks) {
-                uint32_t dbs = 0, nb = 0;
-                if (have[s]) {
-                    dbs = (be(ps[s][0]) >> 16) & 0xFF;
-                    nb = (dbs && bytes[s] >= 8) ? (bytes[s] - 8) / (dbs * 4) : 0;
-                }
-                for (uint32_t b = 0; b < blocks; b++) {
-                    float *dst = inRing + ((firstFrame + b) % ringFrames) * inChannels + chanOff;
-                    for (uint32_t k = 0; k < pcm && chanOff + k < inChannels; k++) {
-                        float x = 0.0f;
-                        if (b < nb && k < dbs) {
-                            uint32_t qd = be(ps[s][2 + b * dbs + k]);
-                            x = float(int32_t(qd << 8) >> 8) * (1.0f / 8388608.0f);
-                        }
-                        dst[k] = x;
-                        float a = x < 0 ? -x : x;
-                        if (chanOff + k < 64 && a > peak[chanOff + k]) peak[chanOff + k] = a;
-                    }
-                }
-            }
-            chanOff += pcm;
-            if (s > 0 && have[s]) releaseIR(s);
+        // Input samples of stream 0; remember its SYT -> frame mapping for the other streams.
+        writeInput(0, ps[0], dbs0, blocks, firstFrame);
+        (void)bytes;
+        if (blocks && syt != 0xFFFF) {
+            hist[histPos] = { syt, C, firstFrame };
+            histPos = (histPos + 1) % kHist;
         }
 
         // Zero timestamps at every ring wrap.
@@ -396,6 +460,8 @@ void AmdtpEngine::pump()
         gotFirst = true;
     }
 
+    for (int s2 = 1; s2 < cfg.nIn; s2++) pumpSecondary(s2);
+
     if (refHost - statLastLog > uint64_t(clock.nsToTicks(2000000000ll))) {
         if (statLastLog) logStats();
         statLastLog = refHost;
@@ -416,6 +482,9 @@ void AmdtpEngine::logStats()
     uint32_t itCtl = cfg.nOut ? fw->rd(ITContextBase + ITContextStride * uint32_t(cfg.out[0].ctx) + CtxControlSet) : 0;
     LOG("stream: %llu frames, %llu packets (%llu empty), late %llu, gaps %llu, IR ctl 0x%08x, IT ctl 0x%08x",
         inSample, statPackets, statEmpty, statLate, statResync, irCtl, itCtl);
+    if (cfg.nIn > 1)
+        LOG("IR1: %{public}s, frame lag %lld, anchors %llu",
+            synced[1] ? "anchored" : "NOT anchored", int64_t(inSample) - int64_t(frameS[1]), statResyncS[1]);
     if (levelLog) {
         char line[400]; uint32_t n = 0;
         for (uint32_t c = 0; c < inChannels && c < 64 && n + 16 < sizeof(line); c++) {

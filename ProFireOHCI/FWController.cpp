@@ -360,6 +360,12 @@ void FWController::allowPhysicalFrom(int phy)
     wr(PhyReqFilterHiSet, physMaskHi);
 }
 
+void FWController::forceBusReset()
+{
+    uint8_t r1 = 0;
+    if (phyRead(1, &r1)) phyWrite(1, r1 | 0x40);
+}
+
 uint32_t FWController::notifyIova() const { return misc.iova(kOffNotify); }
 
 uint32_t FWController::takeNotify()

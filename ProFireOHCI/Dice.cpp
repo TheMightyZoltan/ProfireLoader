@@ -133,14 +133,16 @@ bool Dice::locked()
     return rd(global() + GlobalStatus, &st) && (st & kStatusLocked);
 }
 
-bool Dice::setRate(uint32_t hz)
+bool Dice::setRate(uint32_t hz, bool force)
 {
     uint32_t idx = 0;
     while (idx < kRateCount && kRates[idx] != hz) idx++;
     if (idx == kRateCount || !(clockCaps & (1u << idx))) { LOG("rate %u not supported", hz); return false; }
     uint32_t cs = 0;
     if (!rd(global() + GlobalClockSelect, &cs)) return false;
-    if (((cs >> 8) & 0xFF) == idx && locked()) return true;
+    // Linux snd-dice always re-selects the clock right after taking ownership: "the unit can return
+    // invalid stream formats... selecting clock parameters have an effect for the unit to refine it".
+    if (!force && ((cs >> 8) & 0xFF) == idx && locked()) return true;
 
     fw->takeNotify();
     uint32_t ncs = (cs & ~kRateMask) | (idx << kRateShift);
@@ -234,4 +236,158 @@ bool Dice::setRxChannel(int i, int channel)
 bool Dice::enable(bool on)
 {
     return wr(global() + GlobalEnable, on ? 1 : 0);
+}
+
+// ---------------------------------------------------------------------------
+// EAP router
+
+static const char *blockName(uint32_t b, bool dst)
+{
+    switch (b) {
+        case 0: return "AES";
+        case 1: return "ADAT";
+        case 2: return dst ? "MIX0" : "MIX";
+        case 3: return dst ? "MIX1" : "?3";
+        case 4: return "INS0";
+        case 5: return "INS1";
+        case 10: return "ARM";
+        case 11: return dst ? "ATX0" : "ARX0";
+        case 12: return dst ? "ATX1" : "ARX1";
+        case 15: return "MUTE";
+        default: return "?";
+    }
+}
+
+bool Dice::readExt()
+{
+    haveExt = true;
+    for (int i = 0; i < 18 && haveExt; i++) haveExt = rd(kExtBaseLo + 4 * i, &ext[i]);
+    return haveExt;
+}
+
+static void appendRoute(char *line, uint32_t &n, uint32_t size, uint32_t e)
+{
+    uint32_t src = e & 0xFF, dst = (e >> 8) & 0xFF;
+    const char *a = blockName(dst >> 4, true), *b = blockName(src >> 4, false);
+    char tmp[40]; uint32_t k = 0;
+    for (const char *p = a; *p; p++) tmp[k++] = *p;
+    tmp[k++] = char('0' + (dst & 0xF) / 10); tmp[k++] = char('0' + (dst & 0xF) % 10);
+    tmp[k++] = '<'; 
+    for (const char *p = b; *p; p++) tmp[k++] = *p;
+    tmp[k++] = char('0' + (src & 0xF) / 10); tmp[k++] = char('0' + (src & 0xF) % 10);
+    tmp[k++] = ' ';
+    for (uint32_t i = 0; i < k && n + 1 < size; i++) line[n++] = tmp[i];
+    line[n] = 0;
+}
+
+void Dice::dumpRouter()
+{
+    if (!readExt()) { LOG("no EAP"); return; }
+    static const char *names[] = {"caps", "cmd", "mixer", "peak", "router", "stream_config",
+                                  "current_config", "standalone_config", "application"};
+    for (int i = 0; i < 9; i++) LOG("EAP %{public}s @0x%x size %u", names[i], ext[2 * i] * 4, ext[2 * i + 1]);
+
+    uint32_t caps[4] = {};
+    for (int i = 0; i < 4; i++) rd(kExtBaseLo + ext[0] * 4 + 4 * i, &caps[i]);
+    LOG("EAP caps router 0x%08x mixer 0x%08x general 0x%08x", caps[0], caps[1], caps[2]);
+
+    struct { const char *what; uint32_t lo; } tables[] = {
+        { "router (new)",        kExtBaseLo + ext[2 * 4] * 4 },
+        { "current low router",  kExtBaseLo + ext[2 * 6] * 4 + 0x0000 },
+        { "current mid router",  kExtBaseLo + ext[2 * 6] * 4 + 0x2000 },
+    };
+    for (auto &t : tables) {
+        uint32_t n = 0;
+        if (!rd(t.lo, &n)) { LOG("%{public}s: unreadable", t.what); continue; }
+        LOG("%{public}s: %u entries", t.what, n);
+        if (n > 128) n = 128;
+        char line[400]; uint32_t len = 0; line[0] = 0;
+        for (uint32_t i = 0; i < n; i++) {
+            uint32_t e = 0;
+            rd(t.lo + 4 + 4 * i, &e);
+            appendRoute(line, len, sizeof(line), e);
+            if (len > 330) { LOG("  %{public}s", line); len = 0; line[0] = 0; }
+        }
+        if (len) LOG("  %{public}s", line);
+    }
+    // current low stream config: tx count, rx count, then per-stream (audio, midi, ac3, names...)
+    uint32_t sc = kExtBaseLo + ext[2 * 6] * 4 + 0x1000, ntx = 0, nrx = 0;
+    rd(sc, &ntx); rd(sc + 4, &nrx);
+    LOG("current low stream config: %u tx, %u rx", ntx, nrx);
+}
+
+void Dice::peek(uint32_t lo, uint32_t count)
+{
+    for (uint32_t i = 0; i < count; i += 8) {
+        uint32_t v[8] = {};
+        for (uint32_t k = 0; k < 8; k++) rd(lo + 4 * (i + k), &v[k]);
+        LOG("peek 0x%08x: %08x %08x %08x %08x %08x %08x %08x %08x", lo + 4 * i, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+    }
+}
+
+// EAP command section: [0] opcode (bit 31 = execute, cleared by the device when done), [1] return value.
+bool Dice::eapCommand(uint32_t opcode)
+{
+    if (!haveExt && !readExt()) return false;
+    uint32_t cmd = kExtBaseLo + ext[2 * 1] * 4;
+    if (!wr(cmd, opcode | (1u << 31))) return false;
+    for (int i = 0; i < 200; i++) {
+        uint32_t v = 0;
+        if (rd(cmd, &v) && !(v & (1u << 31))) {
+            uint32_t ret = 0;
+            rd(cmd + 4, &ret);
+            LOG("EAP command 0x%08x done, return 0x%08x", opcode, ret);
+            return ret == 0;
+        }
+        IOSleep(5);
+    }
+    LOG("EAP command 0x%08x timed out", opcode);
+    return false;
+}
+
+// Copy the stored host routing for each rate mode into the EAP "new router" area and load it.
+bool Dice::loadHostRouter()
+{
+    if (!haveExt && !readExt()) return false;
+    uint32_t routerLo = kExtBaseLo + ext[2 * 4] * 4;
+    uint32_t routerQuads = ext[2 * 4 + 1];
+    uint32_t cur = kExtBaseLo + ext[2 * 6] * 4;
+    static const struct { uint32_t off, flag; const char *name; } modes[] = {
+        { 0x0000, 1u << 16, "low" }, { 0x2000, 1u << 17, "mid" }, { 0x4000, 1u << 18, "high" },
+    };
+    bool ok = true;
+    for (auto &m : modes) {
+        uint32_t n = 0;
+        if (!rd(cur + m.off, &n) || n == 0 || n + 1 > routerQuads) { LOG("router %{public}s: %u entries, skipped", m.name, n); continue; }
+        if (!wr(routerLo, n)) return false;
+        for (uint32_t i = 0; i < n; i++) {
+            uint32_t e = 0;
+            if (!rd(cur + m.off + 4 + 4 * i, &e) || !wr(routerLo + 4 + 4 * i, e)) return false;
+        }
+        bool r = eapCommand(0x0001 | m.flag);       // LD_ROUTER for this rate mode
+        LOG("host router %{public}s (%u entries) %{public}s", m.name, n, r ? "loaded" : "FAILED");
+        ok = ok && r;
+    }
+
+    // Stream config (which router slots feed which isochronous channels), like M-Audio's
+    // WriteStreamConfig: copy each rate mode's stored config into the EAP area and LD_STRM_CFG.
+    uint32_t scLo = kExtBaseLo + ext[2 * 5] * 4;
+    uint32_t scQuads = ext[2 * 5 + 1];
+    static const uint32_t scOff[3] = { 0x1000, 0x3000, 0x5000 };
+    for (int m = 0; m < 3; m++) {
+        uint32_t ntx = 0, nrx = 0;
+        if (!rd(cur + scOff[m], &ntx) || !rd(cur + scOff[m] + 4, &nrx) || ntx > 8 || nrx > 8 || (ntx + nrx) == 0) {
+            LOG("stream config %{public}s: tx %u rx %u, skipped", modes[m].name, ntx, nrx);
+            continue;
+        }
+        bool copied = true;
+        for (uint32_t i = 0; i < scQuads && copied; i++) {
+            uint32_t v = 0;
+            copied = rd(cur + scOff[m] + 4 * i, &v) && wr(scLo + 4 * i, v);
+        }
+        bool r = copied && eapCommand(0x0002 | modes[m].flag);   // LD_STRM_CFG
+        LOG("host stream config %{public}s (%u tx / %u rx) %{public}s", modes[m].name, ntx, nrx, r ? "loaded" : "FAILED");
+        ok = ok && r;
+    }
+    return ok;
 }

@@ -54,6 +54,8 @@ struct ProFireOHCI_IVars {
     bool streaming = false;
     bool restartPending = false;
     uint32_t delayCycles = 48;
+    bool routerLoaded = false;
+    bool noOut = false;
     int  isoCh[2 * Dice::kMaxStreams] = {};
     uint32_t isoBw[2 * Dice::kMaxStreams] = {};
     float *testIn = nullptr, *testOut = nullptr;
@@ -61,9 +63,19 @@ struct ProFireOHCI_IVars {
 
 // ---------------------------------------------------------------------------
 
+static bool gZtsLog = false;
+static uint64_t gLastZtsSample = 0, gLastZtsHost = 0;
+
 static void ztsThunk(void *ctx, uint64_t sampleTime, uint64_t hostTime)
 {
     auto *dev = static_cast<ProFireAudioDevice *>(ctx);
+    if (gZtsLog && gLastZtsHost) {
+        int64_t dh = int64_t(hostTime - gLastZtsHost);
+        LOG("zts sample %llu host %llu: +%lld frames, +%lld ticks (ideal %lld at 24 MHz), now-host %lld",
+            sampleTime, hostTime, int64_t(sampleTime - gLastZtsSample), dh,
+            int64_t(sampleTime - gLastZtsSample) * 24000000ll / 48000ll, int64_t(mach_absolute_time() - hostTime));
+    }
+    gLastZtsSample = sampleTime; gLastZtsHost = hostTime;
     if (dev) dev->UpdateCurrentZeroTimestamp(sampleTime, hostTime);
 }
 
@@ -162,7 +174,7 @@ static void createAudioDevice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
     dev->SetCanBeDefaultInputDevice(true);
     dev->SetCanBeDefaultOutputDevice(true);
     dev->SetCanBeDefaultSystemOutputDevice(true);
-    dev->SetInputSafetyOffset(128);
+    dev->SetInputSafetyOffset(256);
     dev->SetOutputSafetyOffset(64);
     dev->SetInputLatency(48);
     dev->SetOutputLatency(kTransferDelay * 6 + 48);
@@ -256,10 +268,9 @@ static kern_return_t startStreamingInternal(ProFireOHCI_IVars *iv)
     if (!iv->diceFound) { LOG("cannot start: ProFire not found"); return kIOReturnNoDevice; }
     Dice &d = iv->dice;
     if (!d.takeOwnership()) { LOG("cannot take DICE ownership"); return kIOReturnNotPermitted; }
-    if (d.currentRate() != uint32_t(iv->rate) || !d.locked()) {
-        if (!d.setRate(uint32_t(iv->rate))) LOG("warning: clock not locked at %u Hz", uint32_t(iv->rate));
-    }
+    if (!d.setRate(uint32_t(iv->rate), true)) LOG("warning: clock not locked at %u Hz", uint32_t(iv->rate));
     d.readStreamFormats();
+    if (!iv->routerLoaded) iv->routerLoaded = d.loadHostRouter();
 
     uint32_t sfc = rateIndex(iv->rate);
     uint32_t syti = iv->rate > 96000 ? 32 : iv->rate > 48000 ? 16 : 8;
@@ -269,6 +280,7 @@ static kern_return_t startStreamingInternal(ProFireOHCI_IVars *iv)
     cfg.transferDelayCycles = iv->delayCycles;
     cfg.nIn = int(d.numTx < uint32_t(iv->fw.numIR) ? d.numTx : uint32_t(iv->fw.numIR));
     cfg.nOut = int(d.numRx < uint32_t(iv->fw.numIT) ? d.numRx : uint32_t(iv->fw.numIT));
+    if (iv->noOut) cfg.nOut = 0;
 
     for (int i = 0; i < cfg.nIn; i++) {
         uint32_t midiSlots = (d.tx[i].midi + 7) / 8;
@@ -366,7 +378,11 @@ void IMPL(ProFireOHCI, HousekeepingFired)
         iv->lastGen = iv->fw.generation;
         bool was = iv->streaming;
         if (was) { LOG("bus reset while streaming, restarting streams"); stopStreamingInternal(iv); }
+        bool wasThere = iv->diceFound;
         findDice(this, iv);
+        // A plain bus reset keeps the DICE's router; only a power cycle (device gone and back)
+        // drops it back to standalone routing.
+        if (!wasThere || !iv->diceFound) iv->routerLoaded = false;
         if (was && iv->diceFound) startStreamingInternal(iv);
     }
     uint64_t delta = uint64_t(kHousekeepingMs) * 1000000;
@@ -413,11 +429,19 @@ kern_return_t IMPL(ProFireOHCI, NewUserClient)
         case 'A': word = "rate"; arg *= 10; break;
         case 'I': word = "itrestart"; break;
         case 'W': word = "raw"; break;
+        case 'J': word = "zts"; break;
+        case 'G': word = "busreset"; break;
+        case 'E': word = "reenable"; break;
+        case 'Z': word = "noout"; break;
+        case 'U': word = "router"; break;
+        case 'H': word = "loadrouter"; break;
+        case 'B': word = "peekb"; break;
+        case 'X': word = "peekx"; break;
         case 'M': word = "itcm"; break;
         default: return kIOReturnBadArgument;
     }
     for (const char *p = word; *p; p++) buf[n++] = *p;
-    if (c == 'Y' || c == 'O' || c == 'A' || c == 'M') {
+    if (c == 'Y' || c == 'O' || c == 'A' || c == 'M' || c == 'B' || c == 'X' || c == 'Z') {
         buf[n++] = ' ';
         char tmp[12]; uint32_t k = 0, v = arg;
         do { tmp[k++] = char('0' + v % 10); v /= 10; } while (v);
@@ -456,6 +480,16 @@ static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, con
         iv->engine.levelLog = !iv->engine.levelLog;
     } else if (eq("notone")) {
         iv->engine.toneChannel = -1;
+    } else if (eq("loadrouter")) {
+        if (iv->diceFound) iv->routerLoaded = iv->dice.loadHostRouter();
+    } else if (eq("router")) {
+        if (iv->diceFound) iv->dice.dumpRouter();
+    } else if (eq("reenable")) {
+        if (iv->diceFound) { iv->dice.enable(false); IOSleep(50); iv->dice.enable(true); LOG("DICE enable toggled"); }
+    } else if (eq("busreset")) {
+        iv->fw.forceBusReset();
+    } else if (eq("zts")) {
+        gZtsLog = !gZtsLog;
     } else if (eq("raw")) {
         iv->engine.rawDumps = 3;
     } else if (eq("itrestart")) {
@@ -471,6 +505,9 @@ static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, con
         auto is = [&](const char *w) { uint32_t i = 0; while (w[i] && i < wl && w[i] == c[i]) i++; return !w[i] && i == wl; };
         if (hasNum && is("delay")) { iv->delayCycles = n; LOG("transfer delay -> %u cycles (applies on next start)", n); }
         else if (hasNum && is("tone")) { iv->engine.toneChannel = int(n) - 1; LOG("tone -> output %u", n); }
+        else if (hasNum && is("peekb") && iv->diceFound) iv->dice.peek(dice::kBaseLo + n * 4, 16);
+        else if (hasNum && is("peekx") && iv->diceFound) iv->dice.peek(dice::kExtBaseLo + n * 4, 16);
+        else if (hasNum && is("noout")) { iv->noOut = n != 0; LOG("noout %u (applies on next start)", n); }
         else if (hasNum && is("itcm")) { iv->engine.itCycleMatch = n != 0; LOG("IT cycle match %{public}s", n ? "on" : "off"); }
         else if (hasNum && is("rate")) { self->ChangeRate(double(n)); }
         else return kIOReturnUnsupported;
