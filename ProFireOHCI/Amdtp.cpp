@@ -321,6 +321,17 @@ void AmdtpEngine::pump()
         uint32_t blocks = (dbs0 && fdf != 0xFF && bytes0 >= 8) ? (bytes0 - 8) / (dbs0 * 4) : 0;
         uint64_t firstFrame = inSample;
 
+        if (rawDumps > 0 && blocks) {
+            rawDumps--;
+            LOG("raw IR0 cyc %llu bytes %u: cip %08x %08x | %08x %08x %08x %08x %08x %08x | %08x %08x %08x %08x %08x %08x",
+                C, bytes0, cip0, cip1, be(p0[2]), be(p0[3]), be(p0[4]), be(p0[5]), be(p0[6]), be(p0[7]),
+                be(p0[8]), be(p0[9]), be(p0[10]), be(p0[11]), be(p0[12]), be(p0[13]));
+            if (cfg.nIn > 1 && have[1])
+                LOG("raw IR1 bytes %u: cip %08x %08x | %08x %08x %08x %08x", bytes[1], be(ps[1][0]), be(ps[1][1]),
+                    be(ps[1][2]), be(ps[1][3]), be(ps[1][4]), be(ps[1][5]));
+            LOG("raw dbs %u fdf 0x%02x syt 0x%04x blocks %u inRing %p inCh %u", dbs0, fdf, syt, blocks, inRing, inChannels);
+        }
+
         // Input samples.
         uint32_t chanOff = 0;
         for (int s = 0; s < cfg.nIn; s++) {

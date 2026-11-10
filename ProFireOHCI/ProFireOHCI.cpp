@@ -412,6 +412,7 @@ kern_return_t IMPL(ProFireOHCI, NewUserClient)
         case 'O': word = "tone"; break;
         case 'A': word = "rate"; arg *= 10; break;
         case 'I': word = "itrestart"; break;
+        case 'W': word = "raw"; break;
         case 'M': word = "itcm"; break;
         default: return kIOReturnBadArgument;
     }
@@ -455,6 +456,8 @@ static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, con
         iv->engine.levelLog = !iv->engine.levelLog;
     } else if (eq("notone")) {
         iv->engine.toneChannel = -1;
+    } else if (eq("raw")) {
+        iv->engine.rawDumps = 3;
     } else if (eq("itrestart")) {
         iv->engine.restartITRequested = true;
     } else {

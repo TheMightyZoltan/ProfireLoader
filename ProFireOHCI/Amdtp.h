@@ -43,6 +43,7 @@ public:
     bool levelLog = false;
     bool itCycleMatch = true;        // start IT with cycleMatch (tunable)
     bool restartITRequested = false;
+    int  rawDumps = 0;               // log raw contents of the next N data packets (stream 0)
 
     kern_return_t start(FWController *fw, const Config &cfg);
     void stop();
