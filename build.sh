@@ -25,7 +25,7 @@ BUILDNUM=$(( $(cat .buildnum 2>/dev/null || echo 10) + 1 ))
 echo $BUILDNUM > .buildnum
 VERARGS=(MARKETING_VERSION="0.5.$BUILDNUM" CURRENT_PROJECT_VERSION="$BUILDNUM")
 echo "build $BUILDNUM (version 0.5.$BUILDNUM)"
-/usr/libexec/PlistBuddy -c "Set :IOKitPersonalities:ProFireOHCI:IOProbeScore $BUILDNUM" ProFireOHCI/Info.plist
+/usr/libexec/PlistBuddy -c "Set :IOKitPersonalities:ProFireOHCI:IOProbeScore $((10000 + BUILDNUM))" ProFireOHCI/Info.plist
 
 APP=build/Build/Products/Debug/ProFireLoader.app
 DEXT="$APP/Contents/Library/SystemExtensions/local.profire.Loader.ProFireOHCI.dext"

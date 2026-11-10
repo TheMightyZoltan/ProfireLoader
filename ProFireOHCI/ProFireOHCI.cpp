@@ -385,15 +385,53 @@ void IMPL(ProFireOHCI, PumpFired)
 // Developer commands
 // ---------------------------------------------------------------------------
 
+static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, const char *c);
+
 kern_return_t IMPL(ProFireOHCI, SetProperties)
 {
-    auto *iv = ivars;
     OSString *cmd = OSDynamicCast(OSString, properties->getObject("ProFireCommand"));
     if (!cmd) return kIOReturnUnsupported;
-    const char *c = cmd->getCStringNoCopy();
-    LOG("command: %{public}s", c);
+    return handleCommand(this, ivars, cmd->getCStringNoCopy());
+}
 
-    if (cmd->isEqualTo("restart")) {
+kern_return_t IMPL(ProFireOHCI, NewUserClient)
+{
+    if ((type >> 24) != 0xFE) return NewUserClient(type, userClient, SUPERDISPATCH);
+    char c = char((type >> 16) & 0xFF);
+    uint32_t arg = type & 0xFFFF;
+    char buf[32] = {}; uint32_t n = 0;
+    const char *word = nullptr;
+    switch (c) {
+        case 'R': word = "restart"; break;
+        case 'T': word = "tone"; break;
+        case 'S': word = "stop"; break;
+        case 'D': word = "dump"; break;
+        case 'L': word = "levels"; break;
+        case 'N': word = "notone"; break;
+        case 'Y': word = "delay"; break;
+        case 'O': word = "tone"; break;
+        case 'A': word = "rate"; arg *= 10; break;
+        default: return kIOReturnBadArgument;
+    }
+    for (const char *p = word; *p; p++) buf[n++] = *p;
+    if (c == 'Y' || c == 'O' || c == 'A') {
+        buf[n++] = ' ';
+        char tmp[12]; uint32_t k = 0, v = arg;
+        do { tmp[k++] = char('0' + v % 10); v /= 10; } while (v);
+        while (k) buf[n++] = tmp[--k];
+    }
+    buf[n] = 0;
+    kern_return_t r = handleCommand(this, ivars, buf);
+    *userClient = nullptr;
+    return r == kIOReturnSuccess ? kIOReturnAborted : r;     // "handled, no connection"
+}
+
+static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, const char *c)
+{
+    LOG("command: %{public}s", c);
+    auto eq = [c](const char *w) { uint32_t i = 0; while (w[i] && c[i] == w[i]) i++; return !w[i] && !c[i]; };
+
+    if (eq("restart")) {
         // Clean shutdown, then exit: DriverKit relaunches the newest installed version.
         stopStreamingInternal(iv);
         if (iv->fwUp) iv->fw.stop();
@@ -401,19 +439,19 @@ kern_return_t IMPL(ProFireOHCI, SetProperties)
         LOG("exiting for restart");
         IOSleep(50);
         abort();
-    } else if (cmd->isEqualTo("tone")) {
+    } else if (eq("tone")) {
         iv->engine.toneChannel = 7;      // output 8
         iv->engine.levelLog = true;
         return startStreamingInternal(iv);
-    } else if (cmd->isEqualTo("stop")) {
+    } else if (eq("stop")) {
         iv->engine.toneChannel = -1;
         iv->engine.levelLog = false;
         stopStreamingInternal(iv);
-    } else if (cmd->isEqualTo("dump")) {
+    } else if (eq("dump")) {
         if (iv->diceFound) iv->dice.dump();
-    } else if (cmd->isEqualTo("levels")) {
+    } else if (eq("levels")) {
         iv->engine.levelLog = !iv->engine.levelLog;
-    } else if (cmd->isEqualTo("notone")) {
+    } else if (eq("notone")) {
         iv->engine.toneChannel = -1;
     } else {
         // "<word> <number>" commands
@@ -426,7 +464,7 @@ kern_return_t IMPL(ProFireOHCI, SetProperties)
         auto is = [&](const char *w) { uint32_t i = 0; while (w[i] && i < wl && w[i] == c[i]) i++; return !w[i] && i == wl; };
         if (hasNum && is("delay")) { iv->delayCycles = n; LOG("transfer delay -> %u cycles (applies on next start)", n); }
         else if (hasNum && is("tone")) { iv->engine.toneChannel = int(n) - 1; LOG("tone -> output %u", n); }
-        else if (hasNum && is("rate")) { ChangeRate(double(n)); }
+        else if (hasNum && is("rate")) { self->ChangeRate(double(n)); }
         else return kIOReturnUnsupported;
     }
     return kIOReturnSuccess;
