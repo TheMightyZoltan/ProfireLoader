@@ -123,6 +123,25 @@ Two fixes were needed to get here:
 - **`IOPCITunnelCompatible`:** without this key, macOS won't match a driver to a PCI device that sits behind Thunderbolt (`IOPCITunnelled = Yes`).
 - **`/usr/bin/log`:** zsh has a builtin called `log`, so in scripts you have to call `/usr/bin/log` explicitly.
 
+## Stage 2a: DICE register dump (2026-11-10)
+
+The driver now also dumps the DICE registers of any node whose GUID category is `0x04`.
+The full dump is in [docs/stage2a-dice-dump.log](docs/stage2a-dice-dump.log). Highlights:
+
+- Nickname "FW2626", DICE interface 1.0.4.0, no owner. Clock is Internal at 48 kHz, locked, and not streaming.
+- **Rates:** 32k–192k.
+- **Clock sources:** SPDIF, AES_ANY, ADAT, ADAT_AUX, Word Clock, ARX1/2, Internal.
+- **Device → Mac (2 streams):**
+  - Stream 0: Mic-Line 1–8, SPDIF L/R, plus 1 MIDI.
+  - Stream 1: ADAT 1–16.
+  - 26 inputs in total at 48k.
+- **Mac → device (2 streams):**
+  - Stream 0: Line 1–8, SPDIF L/R, plus 1 MIDI.
+  - Stream 1: ADAT 1–16.
+- **TCAT extension present:** router, mixer, peak meters, stream config, current config and standalone config. This is a DICE II/Jr-style device with a programmable router.
+
+Upgrading a running dext: macOS won't stop an in-use PCI dext ("Failed to terminate dext … being replaced"). The new version takes over after a reboot, or after unplugging and replugging the Thunderbolt dock.
+
 ## Known risks in this stage
 
 - **Compiles but has never run.** The first load on real hardware is the real test.

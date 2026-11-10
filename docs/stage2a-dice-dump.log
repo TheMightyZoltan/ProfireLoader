@@ -1,0 +1,64 @@
+20:59:27.854 attached to PCI 11c1:5901, command 0x0000 -> 0x0006
+20:59:27.854 BAR0: memory index 0, size 4096, type 0
+20:59:27.854 DMA: misc @0x80000000, AR buffer @0x80008000
+20:59:27.854 OHCI version 1.10 (raw 0x00010010), GUID_ROM 0
+20:59:27.904 local GUID ec1a597ba071f719  hw BusOptions 0x0000b003 (max_rec 11, link speed S800)
+20:59:27.905 PHY reg1 0x3f (gap count 63), reg2 0xe3 (3 ports, max speed code 7)
+20:59:27.905 link enabled, bus reset requested
+20:59:27.905 started
+20:59:27.927 ==== bus reset: generation 2 (buffer 2), local node 0xffc1 phy 1 ROOT, 5 self-ID quadlets ====
+20:59:27.927   phy 0: link on, gap 63, speed S400, contender 1, power 4, ports [x parent -]
+20:59:27.927   phy 1: link on, gap 63, speed S800, contender 0, power 4, ports [child x x]  <- this Mac
+20:59:27.927 ---- node 0 (0xffc0): reading config ROM ----
+20:59:27.929 ROM header 0x04046b24 (info_length 4, crc_length 4)
+20:59:27.935 bus_name 0x31333934 ("1394")  bus options 0xe0ff8112
+20:59:27.935   irmc 1 cmc 1 isc 1 bmc 0 pmc 0 max_rec 8 (=512 bytes) link S400
+20:59:27.935 GUID 000d6c0404000002  vendor OUI 0x000d6c (M-Audio)
+20:59:27.939   Module_Vendor_ID (0x03) = 0x000d6c
+20:59:27.940   Textual_Descriptor (0x81) -> leaf @q17
+20:59:27.947     text: "M-Audio"
+20:59:27.948   Model_ID (0x17) = 0x000010
+20:59:27.950   Textual_Descriptor (0x81) -> leaf @q22
+20:59:27.958     text: "ProFire 2626"
+20:59:27.959   Node_Capabilities (0x0c) = 0x0087c0
+20:59:27.961   Unit_Directory (0xd1) -> directory @q12
+20:59:27.964       Unit_Spec_ID (0x12) = 0x000d6c
+20:59:27.966       Unit_SW_Version (0x13) = 0x0100c1
+20:59:27.967       Model_ID (0x17) = 0x000010
+20:59:27.969       Textual_Descriptor (0x81) -> leaf @q28
+20:59:27.978         text: "ProFire 2626"
+20:59:27.978 ---- node 0: done, 31 ROM quadlets read ----
+20:59:27.978 ---- DICE registers of node 0xffc0 ----
+20:59:27.992   section global: offset 0x28, size 90 quadlets
+20:59:27.992   section tx: offset 0x190, size 142 quadlets
+20:59:27.992   section rx: offset 0x3c8, size 282 quadlets
+20:59:27.992   section ext_sync: offset 0x830, size 4 quadlets
+20:59:27.992   section unused2: offset 0x0, size 0 quadlets
+20:59:28.008   nickname "FW2626", DICE interface version 1.0.4.0
+20:59:28.008   owner: none
+20:59:28.008   clock select 0x0000020c: rate 48k, source Internal
+20:59:28.008   status 0x00000201: LOCKED, nominal 48k; ext status 0x00000000; measured rate 48000 Hz; streaming off; last notification 0x00000000
+20:59:28.009   clock caps 0x13f9007f: rates [ 32k 44.1k 48k 88.2k 96k 176.4k 192k ] sources [ AES1 AES4 AES_ANY ADAT TDIF WordClock ARX1 ARX2 Internal ]
+20:59:28.043   clock source names: SPDIF | AES34 | AES56 | TOS | AES_ANY | ADAT | ADAT_AUX | Word Clock | Unused | Unused | Unused | Unused | Internal
+20:59:28.046   tx (device -> Mac): 2 stream(s), 70 quadlets each
+20:59:28.051     tx (device -> Mac)[0]: iso channel -1, 10 audio + 1 MIDI, speed 2
+20:59:28.089       names: Mic-Line 1 | Mic-Line 2 | Mic-Line 3 | Mic-Line 4 | Mic-Line 5 | Mic-Line 6 | Mic-Line 7 | Mic-Line 8 | SPDIF L | SPDIF R
+20:59:28.095     tx (device -> Mac)[1]: iso channel -1, 16 audio + 0 MIDI, speed 2
+20:59:28.138       names: ADAT 1 | ADAT 2 | ADAT 3 | ADAT 4 | ADAT 5 | ADAT 6 | ADAT 7 | ADAT 8 | ADAT 9 | ADAT 10 | ADAT 11 | ADAT 12 | ADAT 13 | ADAT 14 | ADAT 15 | ADAT 16
+20:59:28.141   rx (Mac -> device): 2 stream(s), 70 quadlets each
+20:59:28.146     rx (Mac -> device)[0]: iso channel -1, 10 audio + 1 MIDI, seq start 0
+20:59:28.173       names: Line 1 | Line 2 | Line 3 | Line 4 | Line 5 | Line 6 | Line 7 | Line 8 | SPDIF L | SPDIF R
+20:59:28.179     rx (Mac -> device)[1]: iso channel -1, 16 audio + 0 MIDI, seq start 0
+20:59:28.222       names: ADAT 1 | ADAT 2 | ADAT 3 | ADAT 4 | ADAT 5 | ADAT 6 | ADAT 7 | ADAT 8 | ADAT 9 | ADAT 10 | ADAT 11 | ADAT 12 | ADAT 13 | ADAT 14 | ADAT 15 | ADAT 16
+20:59:28.229   ext sync: source Internal, locked 1, rate 48k, ADAT user data 0x10
+20:59:28.253   ext section caps: offset 0x4c, size 4 quadlets
+20:59:28.253   ext section cmd: offset 0x5c, size 2 quadlets
+20:59:28.253   ext section mixer: offset 0x64, size 289 quadlets
+20:59:28.253   ext section peak: offset 0x4e8, size 128 quadlets
+20:59:28.253   ext section router: offset 0x6e8, size 129 quadlets
+20:59:28.253   ext section stream_config: offset 0x8ec, size 270 quadlets
+20:59:28.253   ext section current_config: offset 0xd24, size 6144 quadlets
+20:59:28.253   ext section standalone_config: offset 0x6d24, size 16 quadlets
+20:59:28.253   ext section application: offset 0x6d64, size 4 quadlets
+20:59:28.259   ext caps: router 0x00800001 mixer 0x10120221 general 0x0002022f reserved 0x00000000
+20:59:28.259 ---- DICE dump done ----
