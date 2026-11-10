@@ -23,7 +23,7 @@ targets:
         excludes: ["Info.plist", "*.entitlements"]
     settings:
       base:
-        PRODUCT_NAME: ProFireOHCI
+        PRODUCT_NAME: local.profire.Loader.ProFireOHCI
         PRODUCT_BUNDLE_IDENTIFIER: local.profire.Loader.ProFireOHCI
         SDKROOT: driverkit
         SUPPORTED_PLATFORMS: driverkit

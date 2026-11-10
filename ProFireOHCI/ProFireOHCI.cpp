@@ -16,7 +16,7 @@
 //
 
 #include <os/log.h>
-#include <mach/mach_time.h>
+#include <time.h>
 
 #include <DriverKit/IOLib.h>
 #include <DriverKit/IOUserServer.h>
@@ -69,7 +69,6 @@ struct ProFireOHCI_IVars {
     IODispatchQueue       *queue      = nullptr;
     IOTimerDispatchSource *timer      = nullptr;
     OSAction              *timerAction = nullptr;
-    mach_timebase_info_data_t timebase = {1, 1};
 
     DmaBuf                 misc;
     DmaBuf                 arBuf;
@@ -86,7 +85,15 @@ struct ProFireOHCI_IVars {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-static inline void ioBarrier() { __asm__ volatile("dmb sy" ::: "memory"); }
+// Full-system barrier so DMA descriptors are visible to the device in order.
+static inline void ioBarrier()
+{
+#if defined(__arm64__) || defined(__aarch64__)
+    __asm__ volatile("dmb sy" ::: "memory");
+#else
+    __asm__ volatile("mfence" ::: "memory");
+#endif
+}
 
 static inline uint32_t rd(ProFireOHCI_IVars *iv, uint32_t off)
 {
@@ -105,9 +112,9 @@ static inline volatile uint32_t *q32(DmaBuf &b, uint32_t off)
     return reinterpret_cast<volatile uint32_t *>(b.cpu + off);
 }
 
-static uint64_t nowNs(ProFireOHCI_IVars *iv)
+static uint64_t nowNs(ProFireOHCI_IVars *)
 {
-    return mach_absolute_time() * iv->timebase.numer / iv->timebase.denom;
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 }
 
 // Poll until (reg & mask) == want, or timeout. Returns true on success.
@@ -696,8 +703,8 @@ static void ohciShutdown(ProFireOHCI_IVars *iv)
 
 static void scheduleTick(ProFireOHCI_IVars *iv)
 {
-    uint64_t delta = uint64_t(kPollMs) * 1000 * 1000 * iv->timebase.denom / iv->timebase.numer;
-    iv->timer->WakeAtTime(kIOTimerClockMachAbsoluteTime, mach_absolute_time() + delta, delta / 4);
+    uint64_t delta = uint64_t(kPollMs) * 1000 * 1000;
+    iv->timer->WakeAtTime(kIOTimerClockUptimeRaw, nowNs(iv) + delta, delta / 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -723,8 +730,6 @@ kern_return_t IMPL(ProFireOHCI, Start)
     if (ret != kIOReturnSuccess) return ret;
 
     auto *iv = ivars;
-    mach_timebase_info(&iv->timebase);
-    if (iv->timebase.numer == 0 || iv->timebase.denom == 0) iv->timebase = {1, 1};
 
     iv->pci = OSDynamicCast(IOPCIDevice, provider);
     if (!iv->pci) { LOG("provider is not an IOPCIDevice"); return kIOReturnNoDevice; }

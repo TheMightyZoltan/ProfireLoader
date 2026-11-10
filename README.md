@@ -47,9 +47,10 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ./build.sh
 ```
 
-By default the build signs locally (ad hoc), so no Apple Developer team is needed. The
-first build will almost certainly hit some compile errors, because this code has never
-been compiled. Send the error output back and it gets fixed.
+By default the script builds unsigned and then ad-hoc signs the dext and the app with
+`codesign`, so no Apple Developer team is needed. (Xcode itself refuses to ad-hoc sign the
+restricted DriverKit entitlements.) The build has compiled cleanly with Xcode 27.2 and
+DriverKit 27.2.
 
 ## 3. Allow an unsigned driver (testing only)
 
@@ -112,9 +113,18 @@ space, sample rate and clock, and the stream format.
 
 ## Known risks in this stage
 
-- **Never compiled.** A few DriverKit API names or headers may need small fixes (`mach_timebase_info`, `GetBARInfo`, the timer clock constant).
+- **Compiles but has never run.** The first load on real hardware is the real test.
 - **Ad-hoc signing with SIP off** is how Apple documents testing without entitlements. If activation still refuses, the fallback is the boot-arg `amfi_get_out_of_my_way=1`. That loosens code-signing checks for the whole system, so only use it for testing.
 - **Power-on ordering.** Switch the ProFire on before activating the driver, or switch it on afterwards and let the bus reset trigger a new scan.
+
+## Reference material
+
+`reference/m-audio-2.4.4/` (gitignored, M-Audio's copyright) has M-Audio's original
+kext from the Mac 2.4.4 package, the mixer app's device descriptions, and the 2626
+firmware image. The kext's `Info.plist` confirms vendor `0x000D6C` and model `0x10` for
+the 2626. Its class names show what the later stages need: DICE register get/set, DICE
+opcodes, separate isochronous input and output programs, and a 2626-only optical port B
+mode switch (ADAT vs S/PDIF).
 
 ## Uninstall
 

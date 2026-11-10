@@ -382,7 +382,7 @@
 					PCIDriverKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = local.profire.Loader.ProFireOHCI;
-				PRODUCT_NAME = ProFireOHCI;
+				PRODUCT_NAME = local.profire.Loader.ProFireOHCI;
 				SDKROOT = driverkit;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = driverkit;
@@ -410,7 +410,7 @@
 					PCIDriverKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = local.profire.Loader.ProFireOHCI;
-				PRODUCT_NAME = ProFireOHCI;
+				PRODUCT_NAME = local.profire.Loader.ProFireOHCI;
 				SDKROOT = driverkit;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = driverkit;
