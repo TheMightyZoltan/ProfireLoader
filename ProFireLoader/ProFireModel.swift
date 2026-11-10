@@ -25,19 +25,41 @@ struct MixerSettings: Codable, Equatable {
     var link: [Bool]                 // per channel pair
     var masterLevel: Double = 0      // dB, applied to the master mix
 
+    static let channelCount = 18
     static var factory: MixerSettings {
-        // Like the original factory settings: channel pairs on inputs 1..16 (analog, then ADAT A).
+        // Channels 1-8 analog, 9-16 ADAT A, 17-18 S/PDIF coax, in linked pairs at 0 dB.
         var ch = [ChannelStrip]()
-        for i in 0..<16 { ch.append(ChannelStrip(source: i < 8 ? .analogIn(i) : .adatAIn(i - 8), level: 0, pan: i % 2 == 0 ? -1 : 1)) }
-        return MixerSettings(channels: ch, link: [Bool](repeating: true, count: 8))
+        for i in 0..<channelCount { ch.append(ChannelStrip(source: Dest.mixerIn(i).defaultSource, level: 0, pan: i % 2 == 0 ? -1 : 1)) }
+        return MixerSettings(channels: ch, link: [Bool](repeating: true, count: channelCount / 2))
+    }
+    /// Older saved settings had 16 channels.
+    mutating func normalise() {
+        while channels.count < MixerSettings.channelCount {
+            let i = channels.count
+            channels.append(ChannelStrip(source: Dest.mixerIn(i).defaultSource, level: 0, pan: i % 2 == 0 ? -1 : 1))
+        }
+        while link.count < MixerSettings.channelCount / 2 { link.append(true) }
     }
 }
 
 struct RouterSettings: Codable, Equatable {
-    var outputs: [Int: SourcePair]   // OutputPair.rawValue -> source pair
+    var routes: [Dest: Signal]       // every output and computer input -> its source
     static var factory: RouterSettings {
-        RouterSettings(outputs: Dictionary(uniqueKeysWithValues: OutputPair.allCases.map { ($0.rawValue, $0.defaultSource) }))
+        RouterSettings(routes: Dictionary(uniqueKeysWithValues: Dest.routable.map { ($0, $0.defaultSource) }))
     }
+    func source(_ d: Dest) -> Signal { routes[d] ?? d.defaultSource }
+}
+
+/// Everything the panel controls, for presets.
+struct Preset: Codable {
+    var mixer: MixerSettings
+    var router: RouterSettings
+    var knobPairs: [Bool]?
+    var opticalBIsSPDIF: Bool?
+}
+
+struct DeviceIdentity {
+    var nickname = "", version = "", guid = "", vendor = "", model = ""
 }
 
 enum ClockSource: Int, CaseIterable, Identifiable {
@@ -103,9 +125,9 @@ final class ProFireModel: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        if let data = d.data(forKey: "mixer"), let m = try? JSONDecoder().decode(MixerSettings.self, from: data) { mixer = m }
+        if let data = d.data(forKey: "mixer"), var m = try? JSONDecoder().decode(MixerSettings.self, from: data) { m.normalise(); mixer = m }
         else { mixer = .factory }
-        if let data = d.data(forKey: "router"), let r = try? JSONDecoder().decode(RouterSettings.self, from: data) { router = r }
+        if let data = d.data(forKey: "router2"), let r = try? JSONDecoder().decode(RouterSettings.self, from: data) { router = r }
         else { router = .factory }
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
@@ -115,7 +137,7 @@ final class ProFireModel: ObservableObject {
     private func persist() {
         let d = UserDefaults.standard
         d.set(try? JSONEncoder().encode(mixer), forKey: "mixer")
-        d.set(try? JSONEncoder().encode(router), forKey: "router")
+        d.set(try? JSONEncoder().encode(router), forKey: "router2")
     }
 
     // MARK: - polling
@@ -198,6 +220,7 @@ final class ProFireModel: ObservableObject {
                     self.opticalBIsSPDIF = app[0] & 0x1000_0000 != 0
                     self.knobPairs = (0..<4).map { app[0] & (1 << $0) != 0 }
                     self.standaloneClock = ClockSource(rawValue: Int(sa[0] & 0xFF)) ?? .internalClock
+                    self.loadIdentity()
                     // Restore the panel's settings to the device (the device boots with a muted mixer).
                     self.scheduleMixerPush()
                     self.scheduleRouterPush()
@@ -270,13 +293,13 @@ final class ProFireModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self else { return }
             self.routerPushPending = false
-            let outputs = self.router.outputs
+            let routes = self.router.routes
             let sources = self.mixer.channels.map { $0.source }
             self.io.async {
                 guard let map = self.map else { return }
                 do {
                     for mode in [RateMode.low, .mid] {
-                        try self.applyRouter(map: map, mode: mode, outputs: outputs, mixerSources: sources)
+                        try self.applyRouter(map: map, mode: mode, routes: routes, mixerSources: sources)
                     }
                 } catch {
                     DispatchQueue.main.async { self.lastError = "Router update failed: \(error)" }
@@ -287,22 +310,21 @@ final class ProFireModel: ObservableObject {
 
     /// Start from the device's current routing for this rate mode (keeps the computer-input routes),
     /// replace output and mixer-input routes, and load it.
-    nonisolated private func applyRouter(map: DiceMap, mode: RateMode, outputs: [Int: SourcePair], mixerSources: [Signal]) throws {
+    nonisolated private func applyRouter(map: DiceMap, mode: RateMode, routes newRoutes: [Dest: Signal], mixerSources: [Signal]) throws {
         let cur = map.currentRouter(mode: mode.rawValue)
         let n = Int(try link.read(cur))
         guard n > 0, n < map.routerQuads else { return }
         var routes = [UInt8: UInt8]()                      // destination -> source
         for e in try link.read(cur + 4, quads: n) { routes[UInt8(e & 0xFF)] = UInt8((e >> 8) & 0xFF) }
 
-        for pair in OutputPair.allCases {
-            guard let (dl, dr) = pair.ports(mode) else { continue }
-            let sp = outputs[pair.rawValue] ?? .off
-            let (sl, sr) = sp.signals
-            routes[dl.id] = (sl.port(mode) ?? Port.muted).id
-            routes[dr.id] = (sr.port(mode) ?? Port.muted).id
+        for d in Dest.routable {
+            guard let dp = d.port(mode) else { continue }
+            let src = newRoutes[d] ?? d.defaultSource
+            routes[dp.id] = (src.port(mode) ?? Port.muted).id
         }
-        for (i, s) in mixerSources.enumerated() where i < 16 {
-            routes[Port(Port.mixer, i).id] = (s.port(mode) ?? Port.muted).id
+        for (i, s) in mixerSources.enumerated() {
+            guard let dp = Dest.mixerIn(i).port(mode) else { continue }
+            routes[dp.id] = (s.port(mode) ?? Port.muted).id
         }
         let entries = routes.keys.sorted().map { UInt32(routes[$0]!) << 8 | UInt32($0) }
         guard entries.count + 1 <= map.routerQuads else { throw LinkError.call(-1) }
@@ -378,7 +400,8 @@ final class ProFireModel: ObservableObject {
             mx.link[0] = false
             mx.channels[0] = ChannelStrip(source: .adatBIn(0), level: -6, pan: 0)
             mixer = mx
-            router.outputs[OutputPair.adatA34.rawValue] = .mixerMaster
+            setPair(.adatA34, .mixerMaster)
+            router.routes[.computerIn(25)] = .adatBIn(0)
             print("SELFTEST applied"); fflush(stdout)
             try? await Task.sleep(nanoseconds: 9_000_000_000)
             mixer = savedMixer
@@ -389,6 +412,192 @@ final class ProFireModel: ObservableObject {
         }
     }
     func resetRouter() { router = .factory }
+
+    // MARK: - pair helpers for the simple router view
+
+    func pairSource(_ p: OutputPair) -> SourcePair? {
+        let (l, r) = p.dests
+        return SourcePair.from(router.source(l), router.source(r))
+    }
+    func setPair(_ p: OutputPair, _ sp: SourcePair) {
+        let (l, r) = p.dests, (a, b) = sp.signals
+        router.routes[l] = a; router.routes[r] = b
+    }
+
+    // MARK: - device identity, standalone rate, flash, presets
+
+    @Published var identity = DeviceIdentity()
+    @Published var standaloneRateIndex = 2
+
+    func loadIdentity() {
+        io.async { [weak self] in
+            guard let self, let map = self.map else { return }
+            var id = DeviceIdentity()
+            if let q = try? self.link.read(map.global + 0x0C, quads: 16) { id.nickname = Self.diceString(q) }
+            if let v = try? self.link.read(map.global + 0x60) { id.version = "\(v >> 24).\((v >> 16) & 0xFF).\((v >> 8) & 0xFF).\(v & 0xFF)" }
+            if let rom = try? self.link.read(0xF000_0400, quads: 5) { id.guid = String(format: "%08x%08x", rom[3], rom[4]) }
+            id.vendor = "M-Audio"; id.model = "ProFire 2626"
+            let sa = (try? self.link.read(map.standalone, quads: 5)) ?? []
+            DispatchQueue.main.async {
+                self.identity = id
+                if sa.count == 5 { self.standaloneRateIndex = Int(sa[4] & 0xFF) }
+            }
+        }
+    }
+
+    /// DICE strings: first character in the low byte of each quadlet.
+    static func diceString(_ q: [UInt32]) -> String {
+        var bytes = [UInt8]()
+        for v in q { for b in 0..<4 { let c = UInt8((v >> (8 * UInt32(b))) & 0xFF); if c == 0 { return String(decoding: bytes, as: UTF8.self) }; bytes.append(c) } }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    func setNickname(_ name: String) {
+        var bytes = Array(name.utf8.prefix(63)); bytes.append(0)
+        while bytes.count < 64 { bytes.append(0) }
+        var q = [UInt32]()
+        for i in stride(from: 0, to: 64, by: 4) {
+            var v: UInt32 = UInt32(bytes[i])
+            v |= UInt32(bytes[i + 1]) << 8
+            v |= UInt32(bytes[i + 2]) << 16
+            v |= UInt32(bytes[i + 3]) << 24
+            q.append(v)
+        }
+        io.async { [weak self] in
+            guard let self, let map = self.map else { return }
+            do { try self.link.write(map.global + 0x0C, q) } catch { DispatchQueue.main.async { self.lastError = "Nickname failed: \(error)" } }
+            DispatchQueue.main.async { self.loadIdentity() }
+        }
+    }
+
+    func setStandaloneRate(_ idx: Int) {
+        standaloneRateIndex = idx
+        io.async { [weak self] in
+            guard let self, let map = self.map else { return }
+            do {
+                var sa = try self.link.read(map.standalone, quads: 5)
+                sa[4] = (sa[4] & ~0xFF) | UInt32(idx)
+                try self.link.write(map.standalone + 16, sa[4])
+            } catch { DispatchQueue.main.async { self.lastError = "Standalone rate failed: \(error)" } }
+        }
+    }
+
+    /// Reload the configuration stored in the ProFire's flash, then adopt its routing.
+    func reloadFromFlash(_ done: @escaping (Bool) -> Void) {
+        io.async { [weak self] in
+            guard let self else { return }
+            let ok = (try? self.link.eap(DICE.ldFlashCfg)) ?? false
+            DispatchQueue.main.async { done(ok); if ok { self.loadRoutingFromDevice() } }
+        }
+    }
+
+    /// Adopt the device's active routing (current rate mode) as the panel's routing.
+    func loadRoutingFromDevice() {
+        let mode = self.mode
+        io.async { [weak self] in
+            guard let self, let map = self.map else { return }
+            do {
+                let cur = map.currentRouter(mode: mode.rawValue)
+                let n = Int(try self.link.read(cur))
+                var byDest = [UInt8: UInt8]()
+                for e in try self.link.read(cur + 4, quads: n) { byDest[UInt8(e & 0xFF)] = UInt8((e >> 8) & 0xFF) }
+                var routes = [Dest: Signal]()
+                for d in Dest.routable {
+                    guard let dp = d.port(mode) else { continue }
+                    routes[d] = byDest[dp.id].flatMap { Signal.from(Port(id: $0), mode: mode) } ?? .off
+                }
+                var sources = [Signal?]()
+                for i in 0..<MixerSettings.channelCount {
+                    sources.append(Dest.mixerIn(i).port(mode).flatMap { byDest[$0.id] }.flatMap { Signal.from(Port(id: $0), mode: mode) })
+                }
+                DispatchQueue.main.async {
+                    var r = self.router
+                    for (k, v) in routes { r.routes[k] = v }
+                    self.router = r
+                    var mx = self.mixer
+                    for (i, s) in sources.enumerated() { if let s { mx.channels[i].source = s } }
+                    self.mixer = mx
+                }
+            } catch { DispatchQueue.main.async { self.lastError = "Reading routing failed: \(error)" } }
+        }
+    }
+
+    var preset: Preset { Preset(mixer: mixer, router: router, knobPairs: knobPairs, opticalBIsSPDIF: opticalBIsSPDIF) }
+
+    func apply(_ p: Preset) {
+        var mx = p.mixer; mx.normalise()
+        mixer = mx
+        router = p.router
+        if let k = p.knobPairs { for i in 0..<min(4, k.count) where k[i] != knobPairs[i] { setKnob(pair: i, on: k[i]) } }
+        if let o = p.opticalBIsSPDIF, o != opticalBIsSPDIF { setOpticalB(spdif: o) }
+    }
+
+    // MARK: - advanced (raw) access
+
+    struct RawRoute: Identifiable { let id: Int; let entry: UInt32; let source: String; let dest: String; let level: Float }
+    @Published var rawRoutes = [RawRoute]()
+    @Published var rawRegisters = [UInt32]()
+
+    static func portName(_ id: UInt8, asDest: Bool) -> String {
+        let b = id >> 4, c = Int(id & 0xF)
+        switch b {
+        case 0: return c < 2 ? "S/PDIF Coax \(c == 0 ? "L" : "R")" : c < 4 ? "S/PDIF Optical \(c == 2 ? "L" : "R")" : "AES \(c + 1)"
+        case 1: return c < 8 ? "ADAT A \(c + 1)" : "ADAT B \(c - 7)"
+        case 2: return asDest ? "Mixer In \(c + 1)" : (c < 2 ? "Mixer Master \(c == 0 ? "L" : "R")" : "Aux \(c / 2) \(c % 2 == 0 ? "L" : "R")")
+        case 3: return "Mixer In \(c + 17)"
+        case 5: return asDest ? "Analog Out \(c + 1)" : "Analog In \(c + 1)"
+        case 11: return asDest ? "To Computer \(c + 1)" : "From Computer \(c + 1)"
+        case 12: return asDest ? "To Computer \(c + 11)" : "From Computer \(c + 11)"
+        case 15: return "Mute"
+        default: return "Block \(b) ch \(c + 1)"
+        }
+    }
+
+    func refreshRawRouter() {
+        let mode = self.mode
+        io.async { [weak self] in
+            guard let self, let map = self.map else { return }
+            do {
+                let cur = map.currentRouter(mode: mode.rawValue)
+                let n = Int(try self.link.read(cur))
+                let entries = try self.link.read(cur + 4, quads: n)
+                let peaks = try self.link.read(map.peak, quads: map.peakQuads)
+                var lv = [UInt32: Float]()
+                for v in peaks { lv[v & 0xFFFF] = Float((v >> 16) & 0xFFF) / 4095 }
+                let rows = entries.enumerated().map { (i, e) in
+                    RawRoute(id: i, entry: e, source: Self.portName(UInt8((e >> 8) & 0xFF), asDest: false),
+                             dest: Self.portName(UInt8(e & 0xFF), asDest: true), level: lv[e & 0xFFFF] ?? 0)
+                }
+                DispatchQueue.main.async { self.rawRoutes = rows }
+            } catch { DispatchQueue.main.async { self.lastError = "Raw router read failed: \(error)" } }
+        }
+    }
+
+    func rawRead(_ addr: UInt32, quads: Int) {
+        io.async { [weak self] in
+            guard let self else { return }
+            do { let v = try self.link.read(addr, quads: quads); DispatchQueue.main.async { self.rawRegisters = v } }
+            catch { DispatchQueue.main.async { self.lastError = "Read failed: \(error)" } }
+        }
+    }
+
+    func rawWrite(_ addr: UInt32, _ values: [UInt32]) {
+        io.async { [weak self] in
+            guard let self else { return }
+            do { try self.link.write(addr, values) } catch { DispatchQueue.main.async { self.lastError = "Write failed: \(error)" } }
+        }
+    }
+
+    func rawEAP(_ opcode: UInt32, _ done: @escaping (Bool) -> Void) {
+        io.async { [weak self] in
+            guard let self else { return }
+            let ok = (try? self.link.eap(opcode)) ?? false
+            DispatchQueue.main.async { done(ok) }
+        }
+    }
+
+    var eapBase: UInt32 { DICE.eapBase }
+    var mapInfo: DiceMap? { map }
 
     // MARK: - sample rate (through Core Audio so apps stay in sync)
 

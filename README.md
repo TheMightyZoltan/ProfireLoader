@@ -32,10 +32,11 @@ The dext matches only the FW643 (`IOPCIMatch 0x590111c1`, `IOPCITunnelCompatible
 
 | Tab | What it does |
 |---|---|
-| **Mixer** | 16 channels in 8 linkable pairs. Each has a source (analog, ADAT A/B, S/PDIF, software return 1–26), fader (−∞…+12 dB), pan, mute and solo, plus 7 pre-fader **aux sends** (pick "Aux k" at the top). Master mix = DICE mixer outputs 1/2, aux k = outputs 2k+1/2k+2. |
-| **Router** | Per output pair (analog 1/2…7/8, S/PDIF coax, ADAT A/B pairs), pick a source pair: software returns, Mixer Master, Aux sends, or inputs directly. Applied to both the 44.1/48 and 88.2/96 kHz configurations. |
-| **Hardware** | Sample rate (through Core Audio), clock source (Internal, S/PDIF coax, Optical A/B, Word Clock), lock indicators for each external input, optical port B mode (ADAT or optical S/PDIF), which output pairs the master volume knob controls, standalone clock source, and **Save Settings to ProFire** (flash). |
+| **Mixer** | All 18 DICE mixer inputs, in 9 linkable pairs. Each has a source (analog, ADAT A/B, S/PDIF, software return 1–26), fader (−∞…+12 dB), pan, mute and solo, plus 7 pre-fader **aux sends** (pick "Aux k" at the top). Master mix = DICE mixer outputs 1/2, aux k = outputs 2k+1/2k+2. |
+| **Router** | Three views: **output pairs** (like the original), **every output channel** (analog 1–8, S/PDIF coax and optical, ADAT A/B 1–8), and **computer inputs 1–26** (what each Core Audio input records). Any source works: software returns 1–26, mixer master and aux outputs, analog, ADAT A/B, and coax or optical S/PDIF. "Load from ProFire" takes over the device's active routing. Changes apply to both the 44.1/48 and 88.2/96 kHz configurations. |
+| **Hardware** | Device identity (model, GUID, DICE interface version, editable nickname), sample rate (through Core Audio), clock source (Internal, S/PDIF coax, Optical A/B, Word Clock), lock indicators for each external input, optical port B mode (ADAT or optical S/PDIF), which output pairs the master volume knob controls, standalone clock source and sample rate, **Save Settings to ProFire** (flash), **Reload from ProFire's Memory**, **presets** (save or load JSON files), and a factory reset of the mixer and routing. |
 | **Meters** | Live levels for all inputs, software returns and hardware outputs, from the DICE router's peak meters. |
+| **Advanced** | The active router table with names, raw entries and live levels; DICE register read/write with quick addresses for every section; EAP commands (load router or stream config, load or store flash, any opcode). |
 | **Driver** | Install, update or uninstall the driver, plus connection status. |
 
 The mixer and router settings live in the app and are pushed to the ProFire when the app connects, the way M-Audio's agent restored them. The ProFire boots with a muted mixer. Routes to the computer inputs aren't touched.
@@ -53,7 +54,7 @@ Measured device facts, used by the app:
 - **Router entries:** `(source << 8) | destination`, each byte `block << 4 | channel`. Blocks: AES 0, ADAT 1, mixer 2 (mixer inputs 2/3 as destinations), analog InS1 5, FireWire streams 0xB/0xC, mute 0xF.
 - **Peak meters:** bits 27:16 of each peak entry are a 12-bit linear level for that route.
 - **Application space quadlet 0:** bits 0–3 = master volume knob pairs, bit 28 = optical port B in S/PDIF mode.
-- **Self-test:** `ProFireLoader --selftest` routes ADAT B In 1 → mixer ch 1 (−6 dB) → Mixer Master → ADAT A Out 3/4. With the optical loop, a −12 dBFS tone on output 11 comes back at −18.0 dBFS on inputs 21/22, which verifies source selection, coefficients, pan law and routing. Settings are restored afterwards.
+- **Self-test:** `ProFireLoader --selftest` routes ADAT B In 1 → mixer ch 1 (−6 dB) → Mixer Master → ADAT A Out 3/4, and Computer In 26 ← ADAT B In 1. With the optical loop and a −12 dBFS tone on output 11, inputs 21/22 read −18.0 dBFS and input 26 reads −12.0 dBFS. That verifies source selection, coefficients, pan law, output routing and computer-input routing. Settings are restored afterwards.
 
 ## How it works
 
@@ -134,6 +135,7 @@ Live log:
 - **CLOCK_ACCEPTED notifications** don't arrive at the physical-DMA notification address. Clock changes are confirmed by polling lock status instead.
 - **MIDI** ports are carried as empty slots and not yet exposed.
 - **Startup:** a handful of glitch samples can occur in the first moments after a stream starts.
+- **Optical S/PDIF:** port IDs are assumed to be AES1 (channels 3/4) by DICE convention and haven't been verified with a cable.
 - **Control panel not yet verified with external clocks:** S/PDIF, ADAT and word clock haven't been tested as clock sources, and optical S/PDIF output routing at port B is unverified.
 
 ## Reference material
