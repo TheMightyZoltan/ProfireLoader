@@ -32,7 +32,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: ProFireOHCI/ProFireOHCI.entitlements
         CLANG_CXX_LANGUAGE_STANDARD: c++17
-        OTHER_LDFLAGS: ["-framework", "DriverKit", "-framework", "PCIDriverKit"]
+        OTHER_LDFLAGS: ["-framework", "DriverKit", "-framework", "PCIDriverKit", "-framework", "AudioDriverKit"]
         ENABLE_HARDENED_RUNTIME: NO
         SKIP_INSTALL: YES
 

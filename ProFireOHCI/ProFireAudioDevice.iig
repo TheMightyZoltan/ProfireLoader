@@ -1,0 +1,28 @@
+//
+//  ProFireAudioDevice.iig
+//  The Core Audio device: forwards IO start/stop and rate changes to the driver.
+//
+
+#ifndef ProFireAudioDevice_h
+#define ProFireAudioDevice_h
+
+#include <DriverKit/IOService.iig>
+#include <AudioDriverKit/IOUserAudioDevice.iig>
+
+class ProFireAudioDevice: public IOUserAudioDevice
+{
+public:
+    virtual bool init(IOUserAudioDriver * in_driver,
+                      bool in_supports_prewarming,
+                      OSString * in_device_uid,
+                      OSString * in_model_uid,
+                      OSString * in_manufacturer_uid,
+                      uint32_t in_zero_timestamp_period) override;
+    virtual void free() override;
+
+    virtual kern_return_t StartIO(IOUserAudioStartStopFlags in_flags) final LOCALONLY;
+    virtual kern_return_t StopIO(IOUserAudioStartStopFlags in_flags) final LOCALONLY;
+    virtual kern_return_t HandleChangeSampleRate(double in_sample_rate) final LOCALONLY;
+};
+
+#endif /* ProFireAudioDevice_h */

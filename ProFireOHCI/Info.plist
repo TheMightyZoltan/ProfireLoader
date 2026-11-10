@@ -15,11 +15,11 @@
 	<key>CFBundlePackageType</key>
 	<string>DEXT</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3</string>
+	<string>0.4</string>
 	<key>CFBundleVersion</key>
-	<string>3</string>
+	<string>4</string>
 	<key>OSBundleUsageDescription</key>
-	<string>Experimental FireWire (OHCI 1394) controller driver for the M-Audio ProFire 2626.</string>
+	<string>FireWire (OHCI 1394) audio driver for the M-Audio ProFire 2626.</string>
 	<key>IOKitPersonalities</key>
 	<dict>
 		<key>ProFireOHCI</key>
@@ -40,6 +40,13 @@
 			<string>ProFireOHCI</string>
 			<key>IOUserServerName</key>
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>UserClientProperties</key>
+			<dict>
+				<key>IOClass</key>
+				<string>IOUserUserClient</string>
+				<key>IOUserClass</key>
+				<string>IOUserAudioDriverUserClient</string>
+			</dict>
 		</dict>
 	</dict>
 </dict>

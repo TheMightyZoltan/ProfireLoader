@@ -38,6 +38,7 @@ else
 fi
 
 codesign --verify --deep --strict "$APP" && echo "Signature OK"
+clang -O2 -o build/pfctl tools/pfctl.c -framework IOKit -framework CoreFoundation && echo "Built: build/pfctl"
 echo
 echo "Built: $APP"
 echo "Install with:"

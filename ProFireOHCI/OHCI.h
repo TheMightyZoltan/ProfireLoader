@@ -62,7 +62,40 @@ enum : uint32_t {
     ATRspContextBase      = 0x1A0,
     ARReqContextBase      = 0x1C0,
     ARRspContextBase      = 0x1E0,
+
+    IsoXmitIntEventSet    = 0x090,
+    IsoXmitIntMaskSet     = 0x098,
+    IsoRecvIntEventSet    = 0x0A0,
+    IsoRecvIntMaskSet     = 0x0A8,
+    IRMultiChanMaskHiClear = 0x074,
+    IRMultiChanMaskLoClear = 0x07C,
+
+    // Isochronous contexts
+    ITContextBase         = 0x200,   // + 16 * n
+    ITContextStride       = 0x10,
+    IRContextBase         = 0x400,   // + 32 * n
+    IRContextStride       = 0x20,
+    IRContextMatch        = 0x10,    // offset within an IR context block
 };
+
+// IR ContextControl extra bits
+enum : uint32_t {
+    IRCtx_bufferFill     = 1u << 31,
+    IRCtx_isochHeader    = 1u << 30,
+    IRCtx_cycleMatchEn   = 1u << 29,
+    IRCtx_multiChanMode  = 1u << 28,
+    IRCtx_dualBufferMode = 1u << 27,
+};
+// IT ContextControl extra bits
+enum : uint32_t {
+    ITCtx_cycleMatchEn   = 1u << 31,
+    ITCtx_cycleMatchShift = 16,      // 15 bits: seconds[1:0] | cycle[12:0]
+};
+
+// CSR registers of the isochronous resource manager
+static constexpr uint32_t CSRBandwidthAvailable = 0xF0000220;
+static constexpr uint32_t CSRChannelsAvailHi    = 0xF0000224;
+static constexpr uint32_t CSRChannelsAvailLo    = 0xF0000228;
 
 enum : uint32_t {
     CtxControlSet   = 0x0,

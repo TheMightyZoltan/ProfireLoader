@@ -1,8 +1,7 @@
 //
 //  ProFireOHCI.iig
-//  Stage 1 test driver: takes over an OHCI 1394 controller (LSI FW643 in the
-//  Belkin Thunderbolt Express Dock), brings the FireWire bus up, and reads the
-//  config ROM of every other node. Results go to the unified log.
+//  M-Audio ProFire 2626 (TCAT DICE) over an OHCI 1394 controller, as an
+//  AudioDriverKit sound card.
 //
 
 #ifndef ProFireOHCI_h
@@ -11,8 +10,9 @@
 #include <Availability.h>
 #include <DriverKit/IOService.iig>
 #include <DriverKit/IOTimerDispatchSource.iig>
+#include <AudioDriverKit/IOUserAudioDriver.iig>
 
-class ProFireOHCI: public IOService
+class ProFireOHCI: public IOUserAudioDriver
 {
 public:
     virtual bool init() override;
@@ -21,8 +21,18 @@ public:
     virtual kern_return_t Start(IOService * provider) override;
     virtual kern_return_t Stop(IOService * provider) override;
 
-    // Polling tick: no interrupts are used in this stage.
-    virtual void TimerFired(OSAction * action, uint64_t time) TYPE(IOTimerDispatchSource::TimerOccurred);
+    // Developer commands: {"ProFireCommand": "restart" | "tone" | "stop" | "dump"}
+    virtual kern_return_t SetProperties(OSDictionary * properties) override;
+
+    // Bus resets, device discovery, notifications (default queue).
+    virtual void HousekeepingFired(OSAction * action, uint64_t time) TYPE(IOTimerDispatchSource::TimerOccurred);
+    // Isochronous packet pump (IO queue, ~1 ms).
+    virtual void PumpFired(OSAction * action, uint64_t time) TYPE(IOTimerDispatchSource::TimerOccurred) QUEUENAME(IO);
+
+    // Called by ProFireAudioDevice.
+    kern_return_t StartStreaming() LOCALONLY;
+    kern_return_t StopStreaming() LOCALONLY;
+    kern_return_t ChangeRate(double rate) LOCALONLY;
 };
 
 #endif /* ProFireOHCI_h */
