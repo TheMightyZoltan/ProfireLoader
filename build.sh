@@ -41,7 +41,7 @@ else
   # Inner bundle first, then the app that contains it.
   codesign --force --sign - --timestamp=none \
     --entitlements ProFireOHCI/ProFireOHCI.entitlements "$DEXT"
-  codesign --force --sign - --timestamp=none --options runtime \
+  codesign --force --sign - --timestamp=none \
     --entitlements ProFireLoader/ProFireLoader.entitlements "$APP"
 fi
 

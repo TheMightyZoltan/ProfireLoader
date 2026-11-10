@@ -252,7 +252,8 @@ struct RouterView: View {
                         MeterBar(level: m.level(dest: ports?.1), vertical: false)
                     }.frame(width: 160)
                     if ports == nil { Text("not available at \(m.rate / 1000) kHz (S/MUX)").font(.caption).foregroundStyle(.secondary) }
-                    if pair == .spdifOpt && !m.opticalBIsSPDIF { Text("port B is in ADAT mode").font(.caption).foregroundStyle(.secondary) }
+                    if pair == .spdifOpt && !m.opticalBIsSPDIF { Text("inactive: optical port B is in ADAT mode").font(.caption).foregroundStyle(.secondary) }
+                    if [.adatB12, .adatB34, .adatB56, .adatB78].contains(pair) && m.opticalBIsSPDIF { Text("inactive: optical port B is in S/PDIF mode").font(.caption).foregroundStyle(.secondary) }
                 }
             }
         }.formStyle(.grouped)

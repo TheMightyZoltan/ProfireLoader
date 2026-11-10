@@ -295,11 +295,12 @@ final class ProFireModel: ObservableObject {
             self.routerPushPending = false
             let routes = self.router.routes
             let sources = self.mixer.channels.map { $0.source }
+            let optB = self.opticalBIsSPDIF
             self.io.async {
                 guard let map = self.map else { return }
                 do {
                     for mode in [RateMode.low, .mid] {
-                        try self.applyRouter(map: map, mode: mode, routes: routes, mixerSources: sources)
+                        try self.applyRouter(map: map, mode: mode, routes: routes, mixerSources: sources, opticalBIsSPDIF: optB)
                     }
                 } catch {
                     DispatchQueue.main.async { self.lastError = "Router update failed: \(error)" }
@@ -310,7 +311,8 @@ final class ProFireModel: ObservableObject {
 
     /// Start from the device's current routing for this rate mode (keeps the computer-input routes),
     /// replace output and mixer-input routes, and load it.
-    nonisolated private func applyRouter(map: DiceMap, mode: RateMode, routes newRoutes: [Dest: Signal], mixerSources: [Signal]) throws {
+    nonisolated private func applyRouter(map: DiceMap, mode: RateMode, routes newRoutes: [Dest: Signal], mixerSources: [Signal],
+                                         opticalBIsSPDIF: Bool) throws {
         let cur = map.currentRouter(mode: mode.rawValue)
         let n = Int(try link.read(cur))
         guard n > 0, n < map.routerQuads else { return }
@@ -319,6 +321,12 @@ final class ProFireModel: ObservableObject {
 
         for d in Dest.routable {
             guard let dp = d.port(mode) else { continue }
+            // Optical port B is either ADAT or S/PDIF: driving the inactive side's transmitter
+            // disturbs the port (measured: AES1 routes corrupt ADAT B input). Remove those routes.
+            var inactive = false
+            if case .spdifOptOut = d { inactive = !opticalBIsSPDIF }
+            if case .adatBOut = d { inactive = opticalBIsSPDIF }
+            if inactive { routes.removeValue(forKey: dp.id); continue }
             let src = newRoutes[d] ?? d.defaultSource
             routes[dp.id] = (src.port(mode) ?? Port.muted).id
         }
@@ -359,6 +367,7 @@ final class ProFireModel: ObservableObject {
     func setOpticalB(spdif: Bool) {
         opticalBIsSPDIF = spdif
         updateApp { $0 = spdif ? ($0 | 0x1000_0000) : ($0 & ~0x1000_0000) }
+        scheduleRouterPush()
     }
 
     func setKnob(pair: Int, on: Bool) {

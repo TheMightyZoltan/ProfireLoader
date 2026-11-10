@@ -50,10 +50,12 @@ build/pfreg eap 0x10001             # LD_ROUTER, low rates
 ```
 
 Measured device facts, used by the app:
+- **Optical port B is one port with two modes.** Routing anything to the S/PDIF-optical transmitter (AES1, channels 3/4) while the port is in ADAT mode corrupts the ADAT B *input*: measured as bursts of silence. The app removes the inactive side's routes, so in ADAT mode there are no AES1 destinations, and in S/PDIF mode there are no ADAT B outputs. Switching the mode re-applies the router.
 - **Mixer:** 18 inputs × 16 outputs. Coefficient `(out, in)` is at mixer quadlet `1 + out·18 + in`, linear 16-bit, `0x4000` = 0 dB, `0xFFFF` ≈ +12 dB. The mixer region rejects block reads.
 - **Router entries:** `(source << 8) | destination`, each byte `block << 4 | channel`. Blocks: AES 0, ADAT 1, mixer 2 (mixer inputs 2/3 as destinations), analog InS1 5, FireWire streams 0xB/0xC, mute 0xF.
 - **Peak meters:** bits 27:16 of each peak entry are a 12-bit linear level for that route.
 - **Application space quadlet 0:** bits 0–3 = master volume knob pairs, bit 28 = optical port B in S/PDIF mode.
+- **Launching for tests:** use `open -n --stdout file /Applications/ProFireLoader.app --args --selftest` (or `--tab N --snapshot file.png`). If you exec the binary directly from a shell, the app runs but creates no window, so those hooks never fire.
 - **Self-test:** `ProFireLoader --selftest` routes ADAT B In 1 → mixer ch 1 (−6 dB) → Mixer Master → ADAT A Out 3/4, and Computer In 26 ← ADAT B In 1. With the optical loop and a −12 dBFS tone on output 11, inputs 21/22 read −18.0 dBFS and input 26 reads −12.0 dBFS. That verifies source selection, coefficients, pan law, output routing and computer-input routing. Settings are restored afterwards.
 
 ## How it works

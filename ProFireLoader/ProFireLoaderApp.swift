@@ -57,7 +57,7 @@ struct ProFireLoaderApp: App {
     @StateObject private var model = ProFireModel()
 
     var body: some Scene {
-        WindowGroup("ProFire Control") {
+        Window("ProFire Control", id: "main") {
             ContentView()
                 .environmentObject(model)
                 .environmentObject(manager)
@@ -75,6 +75,8 @@ struct ProFireLoaderApp: App {
                 }
         }
         .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.presented)     // always open the panel, even if it was closed at last quit
+        .restorationBehavior(.disabled)
     }
 }
 
