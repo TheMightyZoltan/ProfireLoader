@@ -1,0 +1,59 @@
+name: ProFireDriver
+options:
+  bundleIdPrefix: local.profire
+  createIntermediateGroups: true
+settings:
+  base:
+    # Stage 1 testing: "Sign to Run Locally" (ad-hoc). Works with SIP disabled and
+    # `systemextensionsctl developer on`. For a team-signed build, set
+    # DEVELOPMENT_TEAM and switch CODE_SIGN_STYLE to Automatic (needs Apple's
+    # DriverKit PCI entitlement on your team).
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  ProFireOHCI:
+    type: driver-extension
+    platform: macOS
+    sources:
+      - path: ProFireOHCI
+        excludes: ["Info.plist", "*.entitlements"]
+    settings:
+      base:
+        PRODUCT_NAME: ProFireOHCI
+        PRODUCT_BUNDLE_IDENTIFIER: local.profire.Loader.ProFireOHCI
+        SDKROOT: driverkit
+        SUPPORTED_PLATFORMS: driverkit
+        DRIVERKIT_DEPLOYMENT_TARGET: "21.0"
+        INFOPLIST_FILE: ProFireOHCI/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: ProFireOHCI/ProFireOHCI.entitlements
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        OTHER_LDFLAGS: ["-framework", "DriverKit", "-framework", "PCIDriverKit"]
+        ENABLE_HARDENED_RUNTIME: NO
+        SKIP_INSTALL: YES
+
+  ProFireLoader:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: ProFireLoader
+        excludes: ["*.entitlements"]
+    dependencies:
+      - target: ProFireOHCI
+        embed: true
+        codeSign: true
+    settings:
+      base:
+        PRODUCT_NAME: ProFireLoader
+        PRODUCT_BUNDLE_IDENTIFIER: local.profire.Loader
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ProFire Loader
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        CODE_SIGN_ENTITLEMENTS: ProFireLoader/ProFireLoader.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "5.0"

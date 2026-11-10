@@ -1,0 +1,453 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0318402BF006E1F711376747 /* ProFireOHCI.iig in Sources */ = {isa = PBXBuildFile; fileRef = 290B39DDE6C2D28F11D299FF /* ProFireOHCI.iig */; };
+		3156758B7F5F8B6FE9166587 /* ProFireOHCI.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 67BEFF04DC2EAE187A073811 /* ProFireOHCI.cpp */; };
+		369BF0358519C21F38A2357F /* ProFireLoaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F574AD258D197A659933DB /* ProFireLoaderApp.swift */; };
+		69C1334EC9BAA51B3AAEB54C /* ProFireOHCI.dext in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 82FA31FF6D7425FE88272C12 /* ProFireOHCI.dext */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A89D9D43876EA607464C688F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 970F4CEAB8B4331C0B4844BB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B5E07D1FDE3E8F0D69C6F71E;
+			remoteInfo = ProFireOHCI;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CBBBC5333324E8B78390FE44 /* Embed System Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				69C1334EC9BAA51B3AAEB54C /* ProFireOHCI.dext in Embed System Extensions */,
+			);
+			name = "Embed System Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		290B39DDE6C2D28F11D299FF /* ProFireOHCI.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = ProFireOHCI.iig; sourceTree = "<group>"; };
+		67BEFF04DC2EAE187A073811 /* ProFireOHCI.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ProFireOHCI.cpp; sourceTree = "<group>"; };
+		82FA31FF6D7425FE88272C12 /* ProFireOHCI.dext */ = {isa = PBXFileReference; explicitFileType = "wrapper.driver-extension"; includeInIndex = 0; path = ProFireOHCI.dext; sourceTree = BUILT_PRODUCTS_DIR; };
+		8AB55E0AC3582EF12293C01C /* ProFireLoader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ProFireLoader.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B4F574AD258D197A659933DB /* ProFireLoaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProFireLoaderApp.swift; sourceTree = "<group>"; };
+		FDAF1DF352DBA103B93E4E71 /* OHCI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OHCI.h; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		007AD0EBF91C851DB123AE5E /* ProFireLoader */ = {
+			isa = PBXGroup;
+			children = (
+				B4F574AD258D197A659933DB /* ProFireLoaderApp.swift */,
+			);
+			path = ProFireLoader;
+			sourceTree = "<group>";
+		};
+		0BD73695358521352C3E8FFF /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8AB55E0AC3582EF12293C01C /* ProFireLoader.app */,
+				82FA31FF6D7425FE88272C12 /* ProFireOHCI.dext */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		26390FCB03B7E9A1EC894D8C = {
+			isa = PBXGroup;
+			children = (
+				007AD0EBF91C851DB123AE5E /* ProFireLoader */,
+				95C7D8C512FF938B302C2319 /* ProFireOHCI */,
+				0BD73695358521352C3E8FFF /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		95C7D8C512FF938B302C2319 /* ProFireOHCI */ = {
+			isa = PBXGroup;
+			children = (
+				FDAF1DF352DBA103B93E4E71 /* OHCI.h */,
+				67BEFF04DC2EAE187A073811 /* ProFireOHCI.cpp */,
+				290B39DDE6C2D28F11D299FF /* ProFireOHCI.iig */,
+			);
+			path = ProFireOHCI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4674BE16839D1C12130FF7CE /* ProFireLoader */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 621D4C23506E3663A9655A26 /* Build configuration list for PBXNativeTarget "ProFireLoader" */;
+			buildPhases = (
+				6DBF6D371426149084B352D4 /* Sources */,
+				CBBBC5333324E8B78390FE44 /* Embed System Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DACBC951302BD1E39A6EF9D1 /* PBXTargetDependency */,
+			);
+			name = ProFireLoader;
+			packageProductDependencies = (
+			);
+			productName = ProFireLoader;
+			productReference = 8AB55E0AC3582EF12293C01C /* ProFireLoader.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B5E07D1FDE3E8F0D69C6F71E /* ProFireOHCI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9348825F980A2758FF1D3C35 /* Build configuration list for PBXNativeTarget "ProFireOHCI" */;
+			buildPhases = (
+				18C3A2C70501C49398A4698B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ProFireOHCI;
+			packageProductDependencies = (
+			);
+			productName = ProFireOHCI;
+			productReference = 82FA31FF6D7425FE88272C12 /* ProFireOHCI.dext */;
+			productType = "com.apple.product-type.driver-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		970F4CEAB8B4331C0B4844BB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					4674BE16839D1C12130FF7CE = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+					B5E07D1FDE3E8F0D69C6F71E = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = BE73E26322D1BF18384A82C8 /* Build configuration list for PBXProject "ProFireDriver" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 26390FCB03B7E9A1EC894D8C;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 0BD73695358521352C3E8FFF /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B5E07D1FDE3E8F0D69C6F71E /* ProFireOHCI */,
+				4674BE16839D1C12130FF7CE /* ProFireLoader */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		18C3A2C70501C49398A4698B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3156758B7F5F8B6FE9166587 /* ProFireOHCI.cpp in Sources */,
+				0318402BF006E1F711376747 /* ProFireOHCI.iig in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6DBF6D371426149084B352D4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				369BF0358519C21F38A2357F /* ProFireLoaderApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DACBC951302BD1E39A6EF9D1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B5E07D1FDE3E8F0D69C6F71E /* ProFireOHCI */;
+			targetProxy = A89D9D43876EA607464C688F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0B1CD1674570CE06CD68A0E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		4C4553B87B9E69B5F521A2E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		6B651BC236AF7F86BC965973 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ProFireLoader/ProFireLoader.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ProFire Loader";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = local.profire.Loader;
+				PRODUCT_NAME = ProFireLoader;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8FAACF71E08667E97F15C0BA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ProFireLoader/ProFireLoader.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "ProFire Loader";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = local.profire.Loader;
+				PRODUCT_NAME = ProFireLoader;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		D7E1B44069354C8BEE98E69B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CODE_SIGN_ENTITLEMENTS = ProFireOHCI/ProFireOHCI.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				DRIVERKIT_DEPLOYMENT_TARGET = 21.0;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ProFireOHCI/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					DriverKit,
+					"-framework",
+					PCIDriverKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.profire.Loader.ProFireOHCI;
+				PRODUCT_NAME = ProFireOHCI;
+				SDKROOT = driverkit;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = driverkit;
+			};
+			name = Debug;
+		};
+		D9F8099552C2A9684F26D1FE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CODE_SIGN_ENTITLEMENTS = ProFireOHCI/ProFireOHCI.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				DRIVERKIT_DEPLOYMENT_TARGET = 21.0;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ProFireOHCI/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					DriverKit,
+					"-framework",
+					PCIDriverKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = local.profire.Loader.ProFireOHCI;
+				PRODUCT_NAME = ProFireOHCI;
+				SDKROOT = driverkit;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = driverkit;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		621D4C23506E3663A9655A26 /* Build configuration list for PBXNativeTarget "ProFireLoader" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6B651BC236AF7F86BC965973 /* Debug */,
+				8FAACF71E08667E97F15C0BA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9348825F980A2758FF1D3C35 /* Build configuration list for PBXNativeTarget "ProFireOHCI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D7E1B44069354C8BEE98E69B /* Debug */,
+				D9F8099552C2A9684F26D1FE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BE73E26322D1BF18384A82C8 /* Build configuration list for PBXProject "ProFireDriver" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0B1CD1674570CE06CD68A0E8 /* Debug */,
+				4C4553B87B9E69B5F521A2E9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 970F4CEAB8B4331C0B4844BB /* Project object */;
+}
