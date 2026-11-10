@@ -370,7 +370,7 @@ void IMPL(ProFireOHCI, HousekeepingFired)
         if (was && iv->diceFound) startStreamingInternal(iv);
     }
     uint64_t delta = uint64_t(kHousekeepingMs) * 1000000;
-    iv->hkTimer->WakeAtTime(kIOTimerClockUptimeRaw, nowNs() + delta, delta / 4);
+    if (iv->hkTimer) iv->hkTimer->WakeAtTime(kIOTimerClockUptimeRaw, nowNs() + delta, delta / 4);
 }
 
 void IMPL(ProFireOHCI, PumpFired)
@@ -378,7 +378,7 @@ void IMPL(ProFireOHCI, PumpFired)
     auto *iv = ivars;
     iv->engine.pump();
     uint64_t delta = iv->engine.running() ? kPumpNs : 50000000;
-    iv->pumpTimer->WakeAtTime(kIOTimerClockUptimeRaw, nowNs() + delta, delta / 8);
+    if (iv->pumpTimer) iv->pumpTimer->WakeAtTime(kIOTimerClockUptimeRaw, nowNs() + delta, delta / 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -538,10 +538,17 @@ kern_return_t IMPL(ProFireOHCI, Stop)
     auto *iv = ivars;
     LOG("stopping");
     stopStreamingInternal(iv);
-    if (iv->hkTimer) { iv->hkTimer->Cancel(^{}); OSSafeReleaseNULL(iv->hkTimer); }
-    if (iv->pumpTimer) { iv->pumpTimer->Cancel(^{}); OSSafeReleaseNULL(iv->pumpTimer); }
-    OSSafeReleaseNULL(iv->hkAction);
-    OSSafeReleaseNULL(iv->pumpAction);
+    // Release timers and actions only from the cancel handlers (avoids use-after-release).
+    if (iv->hkTimer) {
+        IOTimerDispatchSource *t = iv->hkTimer; OSAction *a = iv->hkAction;
+        iv->hkTimer = nullptr; iv->hkAction = nullptr;
+        t->Cancel(^{ t->release(); if (a) a->release(); });
+    }
+    if (iv->pumpTimer) {
+        IOTimerDispatchSource *t = iv->pumpTimer; OSAction *a = iv->pumpAction;
+        iv->pumpTimer = nullptr; iv->pumpAction = nullptr;
+        t->Cancel(^{ t->release(); if (a) a->release(); });
+    }
     if (iv->device) { RemoveObject(iv->device.get()); iv->device.reset(); }
     if (iv->fwUp) iv->fw.stop();
     iv->fwUp = false;

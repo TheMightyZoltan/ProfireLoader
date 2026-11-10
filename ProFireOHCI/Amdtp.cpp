@@ -158,7 +158,9 @@ void AmdtpEngine::writeIT(int o, uint64_t absCycle, uint32_t blocks, uint16_t sy
     d0->reqCount = 8;
     d0->control = Desc_OUTPUT_MORE | Desc_KEY_IMMEDIATE;
     d0->dataAddress = 0;
-    d0->branchAddress = 0;
+    // Skip address -> this block: on a lost cycle or late fetch the controller retries next cycle
+    // instead of going dead (same as Linux firewire-ohci).
+    d0->branchAddress = r.desc.iova(slot * kITBlock) | 3;
     d0->resCount = 0;
     d0->transferStatus = 0;
     imm[0] = (2u << 16) | (1u << 14) | ((uint32_t(sc.channel) & 0x3F) << 8) | (0xAu << 4);   // S400, tag 1
