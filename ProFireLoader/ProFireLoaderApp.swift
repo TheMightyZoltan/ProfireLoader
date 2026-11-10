@@ -72,6 +72,12 @@ struct ProFireLoaderApp: App {
             }
             .padding(20)
             .frame(minWidth: 520)
+            .onAppear {
+                // `open ProFireLoader.app --args --activate` / `--deactivate` for scripted testing.
+                let args = CommandLine.arguments
+                if args.contains("--activate") { manager.activate() }
+                else if args.contains("--deactivate") { manager.deactivate() }
+            }
         }
         .windowResizability(.contentSize)
     }
