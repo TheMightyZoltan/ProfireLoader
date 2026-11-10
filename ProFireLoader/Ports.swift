@@ -29,7 +29,7 @@ enum Signal: Hashable, Codable {
     case adatAIn(Int)       // 0..7
     case adatBIn(Int)       // 0..7
     case spdifIn(Int)       // 0..1 (coax, AES0)
-    case spdifOptIn(Int)    // 0..1 (optical port B in S/PDIF mode, AES1 - unverified)
+    case spdifOptIn(Int)    // 0..1 (optical port B in S/PDIF mode = AES channels 7/8, the "TOS" receiver)
     case swReturn(Int)      // 0..25 (computer playback channel)
     case mixerOut(Int)      // 0..15 (0/1 master, 2k/2k+1 aux k)
     case off
@@ -41,7 +41,7 @@ enum Signal: Hashable, Codable {
         case .adatAIn(let c): return smux ? (c < 4 ? Port(Port.adat, c) : nil) : Port(Port.adat, c)
         case .adatBIn(let c): return smux ? (c < 4 ? Port(Port.adat, 4 + c) : nil) : Port(Port.adat, 8 + c)
         case .spdifIn(let c): return Port(Port.aes, c)
-        case .spdifOptIn(let c): return Port(Port.aes, 2 + c)
+        case .spdifOptIn(let c): return Port(Port.aes, 6 + c)
         case .swReturn(let c):
             if c < 10 { return Port(Port.arx0, c) }
             let k = c - 10
@@ -97,7 +97,7 @@ enum Dest: Hashable, Codable, Identifiable {
         switch self {
         case .analogOut(let c): return Port(Port.ins1, c)
         case .spdifOut(let c): return Port(Port.aes, c)
-        case .spdifOptOut(let c): return Port(Port.aes, 2 + c)
+        case .spdifOptOut(let c): return Port(Port.aes, 6 + c)
         case .adatAOut(let c): return smux ? (c < 4 ? Port(Port.adat, c) : nil) : Port(Port.adat, c)
         case .adatBOut(let c): return smux ? (c < 4 ? Port(Port.adat, 4 + c) : nil) : Port(Port.adat, 8 + c)
         case .computerIn(let c):
@@ -120,8 +120,18 @@ enum Dest: Hashable, Codable, Identifiable {
         }
     }
 
-    /// Factory routing (matches the ProFire's stored host configuration).
+    /// Factory routing, like M-Audio's: Analog Out 1/2 = mixer master (the mixer carries
+    /// software returns 1/2 on channels 17/18), everything else straight from the computer.
     var defaultSource: Signal {
+        switch self {
+        case .analogOut(let c) where c < 2: return .mixerOut(c)
+        case .mixerIn(let c) where c >= 16: return .swReturn(c - 16)
+        default: return playbackSource
+        }
+    }
+
+    /// The plain "sound card" source: software return for outputs, inputs for the computer.
+    var playbackSource: Signal {
         switch self {
         case .analogOut(let c): return .swReturn(c)
         case .spdifOut(let c): return .swReturn(8 + c)

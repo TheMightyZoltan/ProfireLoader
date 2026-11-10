@@ -13,18 +13,8 @@ struct MeterBar: View {
     var level: Float
     var vertical = true
     var body: some View {
-        GeometryReader { g in
-            let db = level > 0 ? 20 * log10(Double(level)) : -96
-            let frac = CGFloat(max(0, min(1, (db + 60) / 60)))
-            let color: Color = db > -3 ? .red : db > -12 ? .yellow : .green
-            ZStack(alignment: vertical ? .bottom : .leading) {
-                RoundedRectangle(cornerRadius: 2).fill(Color.black.opacity(0.55))
-                RoundedRectangle(cornerRadius: 2).fill(color.gradient)
-                    .frame(width: vertical ? nil : g.size.width * frac, height: vertical ? g.size.height * frac : nil)
-            }
-        }
-        .frame(width: vertical ? 6 : nil, height: vertical ? nil : 6)
-        .animation(.linear(duration: 0.08), value: level)
+        LEDMeter(reading: MeterReading(level: level), vertical: vertical, showClip: false, segments: vertical ? 30 : 40)
+            .frame(width: vertical ? 8 : nil, height: vertical ? nil : 7)
     }
 }
 
@@ -34,166 +24,7 @@ enum FaderCurve {
     static func pos(_ db: Double) -> Double { db <= kSilenceDB ? 0 : 1 - sqrt(max(0, (12 - db) / 96)) }
 }
 
-struct Fader: View {
-    @Binding var db: Double
-    var body: some View {
-        GeometryReader { g in
-            let h = g.size.height - 14
-            let y = (1 - FaderCurve.pos(db)) * h
-            ZStack(alignment: .top) {
-                Capsule().fill(Color.black.opacity(0.6)).frame(width: 4).frame(maxWidth: .infinity)
-                // unity mark
-                Rectangle().fill(Color.white.opacity(0.35)).frame(width: 18, height: 1)
-                    .offset(y: (1 - FaderCurve.pos(0)) * h + 7)
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(LinearGradient(colors: [Color(white: 0.85), Color(white: 0.55)], startPoint: .top, endPoint: .bottom))
-                    .overlay(Rectangle().fill(Color.black.opacity(0.6)).frame(height: 1))
-                    .frame(width: 26, height: 14)
-                    .offset(y: y)
-            }
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
-                let p = 1 - Double(min(max(0, v.location.y - 7), h) / h)
-                db = FaderCurve.db(p)
-            })
-            .onTapGesture(count: 2) { db = 0 }
-        }
-    }
-}
-
 func dbText(_ db: Double) -> String { db <= kSilenceDB ? "-∞" : String(format: "%+.1f", db) }
-
-// MARK: - mixer
-
-struct ChannelStripView: View {
-    @EnvironmentObject var m: ProFireModel
-    let index: Int
-    var linked: Bool
-
-    var body: some View {
-        let ch = m.mixer.channels[index]
-        VStack(spacing: 6) {
-            Menu {
-                ForEach(MixerSources.groups, id: \.0) { group in
-                    Section(group.0) {
-                        ForEach(group.1, id: \.self) { s in
-                            Button(s.name) { setSource(s) }
-                        }
-                    }
-                }
-            } label: {
-                Text(shortName(ch.source)).font(.system(size: 10, weight: .semibold)).lineLimit(1)
-            }
-            .menuStyle(.borderlessButton).frame(width: 54)
-
-            HStack(spacing: 4) {
-                MeterBar(level: m.level(mixerChannel: index))
-                Fader(db: faderBinding).frame(width: 30)
-            }
-            .frame(height: 220)
-            Text(dbText(faderBinding.wrappedValue)).font(.system(size: 10, design: .monospaced))
-
-            if m.auxView == 0 && !linked {
-                Slider(value: binding(\.pan), in: -1...1).controlSize(.mini).frame(width: 50)
-                    .help("Pan (double-click a fader to reset it to 0 dB)")
-            } else {
-                Text(linked ? (index % 2 == 0 ? "L" : "R") : "pre").font(.system(size: 9)).foregroundStyle(.secondary).frame(height: 14)
-            }
-            HStack(spacing: 3) {
-                Toggle("M", isOn: binding(\.mute)).toggleStyle(.button).tint(.orange)
-                Toggle("S", isOn: binding(\.solo)).toggleStyle(.button).tint(.yellow)
-            }.controlSize(.small)
-            Text("\(index + 1)").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
-        }
-        .frame(width: 56)
-    }
-
-    private func shortName(_ s: Signal) -> String {
-        switch s {
-        case .analogIn(let c): return "Anlg \(c + 1)"
-        case .adatAIn(let c): return "Opt A\(c + 1)"
-        case .adatBIn(let c): return "Opt B\(c + 1)"
-        case .spdifIn(let c): return c == 0 ? "S/PDIF L" : "S/PDIF R"
-        case .spdifOptIn(let c): return c == 0 ? "Opt SP L" : "Opt SP R"
-        case .swReturn(let c): return "Return \(c + 1)"
-        case .mixerOut: return "Mix"
-        case .off: return "Off"
-        }
-    }
-
-    private func setSource(_ s: Signal) { m.mixer.channels[index].source = s }
-
-    // In a linked pair, level / mute / solo / aux move together.
-    private func binding<T>(_ kp: WritableKeyPath<ChannelStrip, T>) -> Binding<T> {
-        Binding(get: { m.mixer.channels[index][keyPath: kp] }, set: { v in
-            m.mixer.channels[index][keyPath: kp] = v
-            if linked && kp != \ChannelStrip.pan { m.mixer.channels[index ^ 1][keyPath: kp] = v }
-        })
-    }
-
-    private var faderBinding: Binding<Double> {
-        if m.auxView == 0 { return binding(\.level) }
-        let k = m.auxView - 1
-        return Binding(get: { m.mixer.channels[index].aux[k] }, set: { v in
-            m.mixer.channels[index].aux[k] = v
-            if linked { m.mixer.channels[index ^ 1].aux[k] = v }
-        })
-    }
-}
-
-struct MixerView: View {
-    @EnvironmentObject var m: ProFireModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Picker("Faders", selection: $m.auxView) {
-                    Text("Master Mix").tag(0)
-                    ForEach(1...7, id: \.self) { Text("Aux \($0)").tag($0) }
-                }.pickerStyle(.segmented).frame(maxWidth: 620)
-                Spacer()
-                Button("Reset Mixer") { m.resetMixer() }
-            }
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 6) {
-                    ForEach(0..<(MixerSettings.channelCount / 2), id: \.self) { pair in
-                        VStack(spacing: 4) {
-                            Toggle("Link", isOn: Binding(get: { m.mixer.link[pair] }, set: { m.mixer.link[pair] = $0 }))
-                                .toggleStyle(.button).controlSize(.mini)
-                            HStack(spacing: 2) {
-                                ChannelStripView(index: pair * 2, linked: m.mixer.link[pair])
-                                ChannelStripView(index: pair * 2 + 1, linked: m.mixer.link[pair])
-                            }
-                        }
-                        .padding(4)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
-                    }
-                    masterSection
-                }
-                .padding(.bottom, 8)
-            }
-            Text(m.auxView == 0
-                 ? "Master Mix = mixer outputs 1/2. Route it to an output pair on the Router tab to hear it."
-                 : "Aux \(m.auxView) send levels (pre-fader) = mixer outputs \(2 * m.auxView + 1)/\(2 * m.auxView + 2). Route \"Aux Send \(m.auxView)\" to an output.")
-                .font(.callout).foregroundStyle(.secondary)
-        }
-    }
-
-    private var masterSection: some View {
-        let o = m.auxView * 2
-        return VStack(spacing: 6) {
-            Text(m.auxView == 0 ? "MASTER" : "AUX \(m.auxView)").font(.system(size: 11, weight: .bold))
-            HStack(spacing: 4) {
-                MeterBar(level: m.level(mixerOut: o))
-                MeterBar(level: m.level(mixerOut: o + 1))
-                if m.auxView == 0 { Fader(db: $m.mixer.masterLevel).frame(width: 30) }
-            }
-            .frame(height: 220)
-            if m.auxView == 0 { Text(dbText(m.mixer.masterLevel)).font(.system(size: 10, design: .monospaced)) }
-        }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.08)))
-    }
-}
 
 // MARK: - router
 
@@ -460,7 +291,8 @@ struct AdvancedView: View {
                 Section("EAP commands") {
                     HStack {
                         Button("Load router (all rates)") { run(DICE.ldRouter | DICE.flagLow | DICE.flagMid | DICE.flagHigh) }
-                        Button("Load stream config") { run(DICE.ldStreamCfg | DICE.flagLow | DICE.flagMid | DICE.flagHigh) }
+                        Button("Reload stream configs") { eapResult = "…"; m.reloadStreamConfigs { eapResult = $0 ? "stream configs reloaded" : "reload failed" } }
+                            .help("Reloads each rate mode from its own stored configuration")
                     }
                     HStack {
                         Button("Load flash config") { run(DICE.ldFlashCfg) }
@@ -498,56 +330,6 @@ struct AdvancedView: View {
     }
 }
 
-// MARK: - meters
-
-struct MetersView: View {
-    @EnvironmentObject var m: ProFireModel
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                Text("Inputs").font(.title3.bold())
-                HStack(alignment: .top, spacing: 28) {
-                    group("Analog", (0..<8).map { (Signal.analogIn($0), "\($0 + 1)") })
-                    group("ADAT A", (0..<8).map { (Signal.adatAIn($0), "\($0 + 1)") })
-                    group("ADAT B", (0..<8).map { (Signal.adatBIn($0), "\($0 + 1)") })
-                    group("S/PDIF", [(Signal.spdifIn(0), "L"), (Signal.spdifIn(1), "R"), (Signal.spdifOptIn(0), "oL"), (Signal.spdifOptIn(1), "oR")])
-                }
-                Text("Mixer Outputs").font(.title3.bold())
-                group("", (0..<16).map { (Signal.mixerOut($0), $0 < 2 ? ($0 == 0 ? "ML" : "MR") : "A\($0 / 2)\($0 % 2 == 0 ? "L" : "R")") })
-                Text("Software Returns (from the computer)").font(.title3.bold())
-                group("", (0..<26).map { (Signal.swReturn($0), "\($0 + 1)") })
-                Text("Hardware Outputs").font(.title3.bold())
-                HStack(alignment: .bottom, spacing: 10) {
-                    ForEach(OutputPair.allCases) { p in
-                        let ports = p.ports(m.mode)
-                        VStack(spacing: 3) {
-                            HStack(spacing: 3) { MeterBar(level: m.level(dest: ports?.0)); MeterBar(level: m.level(dest: ports?.1)) }
-                                .frame(height: 130)
-                            Text(p.name.replacingOccurrences(of: " Out", with: "")).font(.system(size: 9)).multilineTextAlignment(.center).frame(width: 56).lineLimit(2)
-                        }
-                    }
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func group(_ title: String, _ items: [(Signal, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !title.isEmpty { Text(title).font(.headline) }
-            HStack(alignment: .bottom, spacing: 9) {
-                ForEach(items, id: \.1) { item in
-                    VStack(spacing: 3) {
-                        MeterBar(level: m.level(source: item.0)).frame(height: 130)
-                        Text(item.1).font(.system(size: 9))
-                    }
-                }
-            }
-        }
-    }
-}
-
 // MARK: - driver
 
 struct DriverView: View {
@@ -577,6 +359,7 @@ struct DriverView: View {
 struct ContentView: View {
     @EnvironmentObject var m: ProFireModel
     @State private var tab = ContentView.initialTab
+    static let tabs = ["Mixer", "Router", "Hardware", "Meters", "Advanced", "Driver"]
     static var initialTab: Int {
         let a = CommandLine.arguments
         if let i = a.firstIndex(of: "--tab"), i + 1 < a.count, let t = Int(a[i + 1]) { return t }
@@ -584,28 +367,56 @@ struct ContentView: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 10) {
                 Text("ProFire 2626").font(.title2.bold())
-                Circle().fill(m.connected ? Color.green : Color.red).frame(width: 9, height: 9)
+                Circle().fill(m.connected ? Theme.green : Theme.red).frame(width: 9, height: 9)
                 Text(m.connected ? "\(String(format: "%.1f", Double(m.rate) / 1000)) kHz · \(m.clockSource.name)\(m.locked ? "" : " (not locked)")" : m.statusText)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                    .foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 20)
                 if let e = m.lastError {
-                    Text(e).font(.callout).foregroundStyle(.red).lineLimit(1)
-                    Button("✕") { m.lastError = nil }.buttonStyle(.borderless)
+                    Text(e).font(.callout).foregroundStyle(Theme.red).lineLimit(1).truncationMode(.middle).frame(maxWidth: 520, alignment: .trailing)
+                    Button { m.lastError = nil } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.borderless)
                 }
             }
-            .padding(.horizontal).padding(.top, 12).padding(.bottom, 6)
-            TabView(selection: $tab) {
-                MixerView().padding().tabItem { Text("Mixer") }.tag(0)
-                RouterView().padding().tabItem { Text("Router") }.tag(1)
-                HardwareView().padding().tabItem { Text("Hardware") }.tag(2)
-                MetersView().tabItem { Text("Meters") }.tag(3)
-                AdvancedView().padding().tabItem { Text("Advanced") }.tag(4)
-                DriverView().padding().tabItem { Text("Driver") }.tag(5)
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            HStack(spacing: 2) {
+                ForEach(Array(Self.tabs.enumerated()), id: \.0) { i, name in
+                    Button { tab = i } label: {
+                        Text(name.uppercased()).font(.system(size: 11, weight: .bold)).tracking(0.6)
+                            .foregroundStyle(tab == i ? Color.black.opacity(0.85) : Theme.text.opacity(0.75))
+                            .frame(width: 96, height: 26)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(tab == i ? Color(white: 0.82) : Color(white: 0.17)))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("tab.\(name)")
+                }
+                Spacer()
             }
+            .padding(.horizontal, 12).padding(.bottom, 8)
+            Divider()
+            ZStack {
+                switch tab {
+                case 0: MixerView()
+                case 1: RouterView().padding()
+                case 2: HardwareView().padding()
+                case 3: MetersView()
+                case 4: AdvancedView().padding()
+                default: DriverView().padding()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .disabled(!m.connected && tab != 5)
+            .overlay {
+                if !m.connected && tab != 5 {
+                    Text("ProFire not connected — \(m.statusText)").padding(10)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.regularMaterial))
+                }
+            }
         }
-        .frame(minWidth: 1180, minHeight: 640)
+        .background(Color(white: 0.085))
+        .frame(minWidth: 1290, minHeight: 760)
+        .preferredColorScheme(.dark)
     }
 }

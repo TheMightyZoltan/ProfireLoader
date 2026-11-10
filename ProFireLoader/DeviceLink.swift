@@ -114,6 +114,10 @@ enum DICE {
     static let flagLow: UInt32 = 1 << 16
     static let flagMid: UInt32 = 1 << 17
     static let flagHigh: UInt32 = 1 << 18
+
+    // Application space quadlet 0
+    static let appKnobMask: UInt32 = 0x0F           // master volume knob: analog out pairs
+    static let appOpticalBSPDIF: UInt32 = 0x10      // optical port B in S/PDIF mode
 }
 
 /// Offsets (bytes, absolute addrLo) of the DICE global section and the EAP sections.
@@ -122,6 +126,7 @@ struct DiceMap {
     var mixer: UInt32 = 0, mixerQuads = 0
     var peak: UInt32 = 0, peakQuads = 0
     var router: UInt32 = 0, routerQuads = 0
+    var stream: UInt32 = 0, streamQuads = 0
     var current: UInt32 = 0
     var standalone: UInt32 = 0
     var application: UInt32 = 0
@@ -135,6 +140,7 @@ struct DiceMap {
         m.mixer = DICE.eapBase + ext[4] * 4; m.mixerQuads = Int(ext[5])
         m.peak = DICE.eapBase + ext[6] * 4; m.peakQuads = Int(ext[7])
         m.router = DICE.eapBase + ext[8] * 4; m.routerQuads = Int(ext[9])
+        m.stream = DICE.eapBase + ext[10] * 4; m.streamQuads = Int(ext[11])
         m.current = DICE.eapBase + ext[12] * 4
         m.standalone = DICE.eapBase + ext[14] * 4
         m.application = DICE.eapBase + ext[16] * 4

@@ -12,6 +12,7 @@ isochronous AM824 streaming, and an AudioDriverKit device.
 - **Measured with loopback cables:**
   - Analog: output 8 → input 6.
   - ADAT: optical out A → in B, bit-exact, 0 glitches in 60 s at 48 kHz.
+  - Optical S/PDIF: out B → in B (port B in S/PDIF mode), −12.0 dBFS in, 0 glitches.
   - 1 kHz test tone at exactly 1000.0 Hz.
 - **Stream alignment:** ADAT (stream 1) is sample-aligned to the analog/S/PDIF stream (stream 0) by SYT presentation time. The DICE skews its two streams by 1024 ticks, and the driver compensates.
 - **Recovery:** a FireWire bus reset mid-stream is recovered in about 2 s. If the ProFire was power-cycled, recovery takes about 4 s, because its host routing has to be reloaded.
@@ -32,10 +33,10 @@ The dext matches only the FW643 (`IOPCIMatch 0x590111c1`, `IOPCITunnelCompatible
 
 | Tab | What it does |
 |---|---|
-| **Mixer** | All 18 DICE mixer inputs, in 9 linkable pairs. Each has a source (analog, ADAT A/B, S/PDIF, software return 1–26), fader (−∞…+12 dB), pan, mute and solo, plus 7 pre-fader **aux sends** (pick "Aux k" at the top). Master mix = DICE mixer outputs 1/2, aux k = outputs 2k+1/2k+2. |
+| **Mixer** | Console layout after the original panel, dark. A segmented LED **meter bridge** in one row (18 channels plus mixer out L/R), with peak hold (off, 1 s, 3 s, 10 s or hold) and latching clip LEDs (click a meter to reset). Below that: **aux send knob rows** (1–7 rows via −/+; each aux bus has a mute and an output selector), a **pan** knob row, M/S buttons with a **link** button per pair, faders with dB scales, and numbered **input buttons** that pick each channel's source. **MIXER OUT** has the master meters, mute, fader and an **output selector**: the mix is only audible on the outputs picked there. The factory setup is M-Audio's: Analog Out 1/2 = mixer master, with mixer channels 17/18 = software returns 1/2. Knobs: drag up/down (Option = fine), double-click resets. Faders: drag (they never jump to the click), double-click = 0 dB. Master mix = DICE mixer outputs 1/2, aux k = outputs 2k+1/2k+2. |
 | **Router** | Three views: **output pairs** (like the original), **every output channel** (analog 1–8, S/PDIF coax and optical, ADAT A/B 1–8), and **computer inputs 1–26** (what each Core Audio input records). Any source works: software returns 1–26, mixer master and aux outputs, analog, ADAT A/B, and coax or optical S/PDIF. "Load from ProFire" takes over the device's active routing. Changes apply to both the 44.1/48 and 88.2/96 kHz configurations. |
 | **Hardware** | Device identity (model, GUID, DICE interface version, editable nickname), sample rate (through Core Audio), clock source (Internal, S/PDIF coax, Optical A/B, Word Clock), lock indicators for each external input, optical port B mode (ADAT or optical S/PDIF), which output pairs the master volume knob controls, standalone clock source and sample rate, **Save Settings to ProFire** (flash), **Reload from ProFire's Memory**, **presets** (save or load JSON files), and a factory reset of the mixer and routing. |
-| **Meters** | Live levels for all inputs, software returns and hardware outputs, from the DICE router's peak meters. |
+| **Meters** | One wide LED row each for inputs, software returns, mixer outputs and hardware outputs, from the DICE router's peak meters, with the same peak hold and clip LEDs. A meter only shows a level when its signal is routed somewhere (the DICE meters routes, not ports). |
 | **Advanced** | The active router table with names, raw entries and live levels; DICE register read/write with quick addresses for every section; EAP commands (load router or stream config, load or store flash, any opcode). |
 | **Driver** | Install, update or uninstall the driver, plus connection status. |
 
@@ -50,12 +51,13 @@ build/pfreg eap 0x10001             # LD_ROUTER, low rates
 ```
 
 Measured device facts, used by the app:
-- **Optical port B is one port with two modes.** Routing anything to the S/PDIF-optical transmitter (AES1, channels 3/4) while the port is in ADAT mode corrupts the ADAT B *input*: measured as bursts of silence. The app removes the inactive side's routes, so in ADAT mode there are no AES1 destinations, and in S/PDIF mode there are no ADAT B outputs. Switching the mode re-applies the router.
+- **Optical port B is one port with two modes.** Routing anything to the S/PDIF-optical transmitter (AES channels 7/8, the "TOS" transmitter) while the port is in ADAT mode corrupts the ADAT B *input*: measured as bursts of silence. The app removes the inactive side's routes, so in ADAT mode there are no AES1 destinations, and in S/PDIF mode there are no ADAT B outputs. Switching the mode re-applies the router.
 - **Mixer:** 18 inputs × 16 outputs. Coefficient `(out, in)` is at mixer quadlet `1 + out·18 + in`, linear 16-bit, `0x4000` = 0 dB, `0xFFFF` ≈ +12 dB. The mixer region rejects block reads.
 - **Router entries:** `(source << 8) | destination`, each byte `block << 4 | channel`. Blocks: AES 0, ADAT 1, mixer 2 (mixer inputs 2/3 as destinations), analog InS1 5, FireWire streams 0xB/0xC, mute 0xF.
 - **Peak meters:** bits 27:16 of each peak entry are a 12-bit linear level for that route.
-- **Application space quadlet 0:** bits 0–3 = master volume knob pairs, bit 28 = optical port B in S/PDIF mode.
+- **Application space quadlet 0:** bits 0–3 = master volume knob pairs, bit 4 (`0x10`) = optical port B in S/PDIF mode, applied by rewriting CLOCK_SELECT with the same value. (M-Audio's kext writes `0x10000000` into a little-endian copy, which looks like bit 28.)
 - **Launching for tests:** use `open -n --stdout file /Applications/ProFireLoader.app --args --selftest` (or `--tab N --snapshot file.png`). If you exec the binary directly from a shell, the app runs but creates no window, so those hooks never fire.
+- **Optical S/PDIF self-test:** `--selftest-spdif` switches port B to S/PDIF and routes SW returns 11/12 → optical out, optical in → computer in 25/26 for 14 s. With an optical cable from out B to in B and `pftest 11 6 -12 25`, input 25 reads −12.0 dBFS with 0 glitches. The mode and routing are restored afterwards.
 - **Self-test:** `ProFireLoader --selftest` routes ADAT B In 1 → mixer ch 1 (−6 dB) → Mixer Master → ADAT A Out 3/4, and Computer In 26 ← ADAT B In 1. With the optical loop and a −12 dBFS tone on output 11, inputs 21/22 read −18.0 dBFS and input 26 reads −12.0 dBFS. That verifies source selection, coefficients, pan law, output routing and computer-input routing. Settings are restored afterwards.
 
 ## How it works
@@ -122,7 +124,13 @@ build/pfctl zts                  # toggle zero-timestamp logging
 build/pfctl restart              # exit; DriverKit relaunches the newest installed version
 build/pftest 8 10 -12 6          # Core Audio: tone on out 8 for 10 s at -12 dBFS, analyse in 6
 build/pftest 11 60 -12 19 48000  # ADAT A->B loop at 48 kHz for 60 s
+build/uiprobe test               # click-test ProFire Control; reports any element that moves
+build/uiprobe test mute.3 click  # one step: click | dbl | drag+ | drag- | menu, by accessibility id
+build/uiprobe dump               # every identified element with its frame
+build/uiprobe shot out.png       # capture only the ProFire Control window
 ```
+
+`uiprobe` (`swiftc -O -o build/uiprobe tools/uiprobe.swift`) drives the real window with mouse events and reads element frames through the accessibility API. It needs Accessibility permission for whatever runs it. After every click or drag it compares all element frames with those from before. Tab switches only check the header and tab bar. Text-only elements are matched by their text, so a label that changes shows up as "moved" (for example the aux-row counter "2" and channel number "2"); controls have stable ids.
 
 Live log:
 

@@ -24,6 +24,10 @@ struct MixerSettings: Codable, Equatable {
     var channels: [ChannelStrip]
     var link: [Bool]                 // per channel pair
     var masterLevel: Double = 0      // dB, applied to the master mix
+    var masterMute: Bool? = nil
+    var auxMute: [Bool]? = nil       // per aux send bus
+    var masterMuted: Bool { masterMute ?? false }
+    func auxMuted(_ k: Int) -> Bool { auxMute.map { k < $0.count && $0[k] } ?? false }
 
     static let channelCount = 18
     static var factory: MixerSettings {
@@ -105,7 +109,15 @@ final class ProFireModel: ObservableObject {
     // mixer / router
     @Published var mixer: MixerSettings { didSet { if mixer != oldValue { persist(); scheduleMixerPush() } } }
     @Published var router: RouterSettings { didSet { if router != oldValue { persist(); scheduleRouterPush() } } }
-    @Published var auxView = 0       // 0 = master faders, k = aux send k
+    @Published var auxRows = 2 { didSet { UserDefaults.standard.set(auxRows, forKey: "auxRows") } }
+
+    // peak hold: seconds (0 = off, -1 = until reset); clip LEDs latch until reset
+    @Published var peakHold: Double = 3 { didSet { UserDefaults.standard.set(peakHold, forKey: "peakHold") } }
+    @Published var srcPeak = [UInt8: Float]()
+    @Published var dstPeak = [UInt8: Float]()
+    @Published var srcClip = Set<UInt8>()
+    @Published var dstClip = Set<UInt8>()
+    private var srcPeakTime = [UInt8: Date](), dstPeakTime = [UInt8: Date]()
 
     // meters (linear 0...1), keyed by router port id
     @Published var srcLevel = [UInt8: Float]()
@@ -129,6 +141,23 @@ final class ProFireModel: ObservableObject {
         else { mixer = .factory }
         if let data = d.data(forKey: "router2"), let r = try? JSONDecoder().decode(RouterSettings.self, from: data) { router = r }
         else { router = .factory }
+        if d.object(forKey: "auxRows") != nil { auxRows = max(1, min(7, d.integer(forKey: "auxRows"))) }
+        if d.object(forKey: "peakHold") != nil { peakHold = d.double(forKey: "peakHold") }
+        // One-time: earlier versions left the mixer unrouted (inaudible). Like M-Audio's factory
+        // setup, feed Analog Out 1/2 from the mixer master and put SW returns 1/2 on mixer 17/18.
+        if !d.bool(forKey: "mixerRoutedV1") {
+            d.set(true, forKey: "mixerRoutedV1")
+            let usesMixer = router.routes.values.contains { if case .mixerOut = $0 { return true }; return false }
+            if !usesMixer {
+                router.routes[.analogOut(0)] = .mixerOut(0); router.routes[.analogOut(1)] = .mixerOut(1)
+                if mixer.channels[16].source == .spdifIn(0) && mixer.channels[17].source == .spdifIn(1) {
+                    mixer.channels[16].source = .swReturn(0); mixer.channels[17].source = .swReturn(1)
+                    mixer.channels[16].level = 0; mixer.channels[17].level = 0
+                    mixer.channels[16].mute = false; mixer.channels[17].mute = false
+                }
+                persist()
+            }
+        }
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
         }
@@ -170,6 +199,8 @@ final class ProFireModel: ObservableObject {
                 DispatchQueue.main.async {
                     self.srcLevel = self.decay(self.srcLevel, src)
                     self.dstLevel = self.decay(self.dstLevel, dst)
+                    self.updatePeaks(src, peak: &self.srcPeak, time: &self.srcPeakTime, clip: &self.srcClip)
+                    self.updatePeaks(dst, peak: &self.dstPeak, time: &self.dstPeakTime, clip: &self.dstClip)
                     if let info {
                         self.locked = info.locked; self.streaming = info.streaming
                         self.extStatus = xs
@@ -188,6 +219,23 @@ final class ProFireModel: ObservableObject {
         var out = new
         for (k, v) in old { out[k] = max(new[k] ?? 0, v * 0.82) }
         return out
+    }
+
+    private func updatePeaks(_ raw: [UInt8: Float], peak: inout [UInt8: Float], time: inout [UInt8: Date], clip: inout Set<UInt8>) {
+        let now = Date()
+        var out = peak
+        for (k, v) in raw where v >= 0.999 && !clip.contains(k) { clip.insert(k) }
+        guard peakHold != 0 else { if !out.isEmpty { out = [:] }; if out != peak { peak = out }; return }
+        for k in Set(raw.keys).union(peak.keys) {
+            let v = raw[k] ?? 0, held = out[k] ?? 0
+            let expired = peakHold > 0 && now.timeIntervalSince(time[k] ?? .distantPast) > peakHold
+            if v >= held || expired { out[k] = v; time[k] = now }
+        }
+        if out != peak { peak = out }
+    }
+
+    func resetPeaks() {
+        srcPeak = [:]; dstPeak = [:]; srcPeakTime = [:]; dstPeakTime = [:]; srcClip = []; dstClip = []
     }
 
     private func disconnected(_ error: Error) {
@@ -217,7 +265,7 @@ final class ProFireModel: ObservableObject {
                     self.lastError = nil
                     self.rate = Int(self.currentCoreAudioRate() ?? Double(info.rate))
                     self.clockSource = ClockSource(rawValue: Int(cs & 0xFF)) ?? .internalClock
-                    self.opticalBIsSPDIF = app[0] & 0x1000_0000 != 0
+                    self.opticalBIsSPDIF = app[0] & DICE.appOpticalBSPDIF != 0
                     self.knobPairs = (0..<4).map { app[0] & (1 << $0) != 0 }
                     self.standaloneClock = ClockSource(rawValue: Int(sa[0] & 0xFF)) ?? .internalClock
                     self.loadIdentity()
@@ -243,11 +291,11 @@ final class ProFireModel: ObservableObject {
             if ch.mute { continue }
             let pan = linkedPan(i)
             let l = pan <= 0 ? 1 : 1 - pan, r = pan >= 0 ? 1 : 1 + pan
-            if !anySolo || ch.solo {
+            if (!anySolo || ch.solo) && !mixer.masterMuted {
                 let g = dbToLin(ch.level) * master
                 m[0][i] += g * l; m[1][i] += g * r
             }
-            for k in 0..<7 where 2 * k + 3 < outs {       // aux sends: pre-fader, follow pan
+            for k in 0..<7 where 2 * k + 3 < outs && !mixer.auxMuted(k) {   // aux sends: pre-fader, follow pan
                 let a = dbToLin(ch.aux[k])
                 m[2 * k + 2][i] += a * l; m[2 * k + 3][i] += a * r
             }
@@ -364,10 +412,56 @@ final class ProFireModel: ObservableObject {
         }
     }
 
+    /// Optical port B: ADAT or S/PDIF (application quadlet 0, bit 4 - M-Audio's kext writes it as
+    /// 0x10000000 into a little-endian copy of the big-endian quadlet). The ProFire applies it when
+    /// the clock is (re)selected.
     func setOpticalB(spdif: Bool) {
+        guard spdif != opticalBIsSPDIF else { return }
         opticalBIsSPDIF = spdif
-        updateApp { $0 = spdif ? ($0 | 0x1000_0000) : ($0 & ~0x1000_0000) }
+        // Move the routes that used the port's other mode (like the original panel's channel reassignment).
+        var r = router
+        for c in 0..<26 {
+            let d = Dest.computerIn(c)
+            switch r.source(d) {
+            case .adatBIn(let k) where spdif: r.routes[d] = k < 2 ? .spdifOptIn(k) : .off
+            case .spdifOptIn(let k) where !spdif: r.routes[d] = .adatBIn(k)
+            default: break
+            }
+        }
+        if spdif, r.source(.spdifOptOut(0)) == .off, r.source(.spdifOptOut(1)) == .off {
+            r.routes[.spdifOptOut(0)] = r.source(.adatBOut(0))
+            r.routes[.spdifOptOut(1)] = r.source(.adatBOut(1))
+        }
+        router = r
+        io.async { [weak self] in
+            guard let self, let map = self.map else { return }
+            do {
+                var app = try self.link.read(map.application, quads: 4)
+                app[0] = spdif ? (app[0] | DICE.appOpticalBSPDIF) : (app[0] & ~DICE.appOpticalBSPDIF)
+                try self.link.write(map.application, app)
+                let cs = try self.link.read(map.global + DICE.clockSelect)
+                try self.link.write(map.global + DICE.clockSelect, cs)        // apply the port mode
+            } catch { DispatchQueue.main.async { self.lastError = "Optical port B change failed: \(error)" } }
+        }
         scheduleRouterPush()
+    }
+
+    /// Reload each rate mode's stream configuration from its own stored copy (never from whatever
+    /// happens to sit in the EAP staging area).
+    func reloadStreamConfigs(_ done: @escaping (Bool) -> Void) {
+        io.async { [weak self] in
+            guard let self, let map = self.map else { return }
+            var ok = true
+            for mode in [RateMode.low, .mid, .high] {
+                do {
+                    let cfg = try self.link.read(map.currentRouter(mode: mode.rawValue) + 0x1000, quads: map.streamQuads)
+                    guard cfg[0] > 0, cfg[0] < 8 else { continue }
+                    try self.link.write(map.stream, cfg)
+                    ok = try self.link.eap(DICE.ldStreamCfg | mode.flag) && ok
+                } catch { ok = false }
+            }
+            DispatchQueue.main.async { done(ok) }
+        }
     }
 
     func setKnob(pair: Int, on: Bool) {
@@ -397,6 +491,28 @@ final class ProFireModel: ObservableObject {
     }
 
     func resetMixer() { mixer = .factory }
+
+    /// Debug: switch optical port B to S/PDIF, loop SW returns 11/12 through it into computer inputs 25/26.
+    func runSPDIFSelfTest() {
+        Task { @MainActor in
+            while !connected { try? await Task.sleep(nanoseconds: 200_000_000) }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let savedRouter = router, savedB = opticalBIsSPDIF
+            setOpticalB(spdif: true)
+            router.routes[.spdifOptOut(0)] = .swReturn(10)
+            router.routes[.spdifOptOut(1)] = .swReturn(11)
+            router.routes[.computerIn(24)] = .spdifOptIn(0)
+            router.routes[.computerIn(25)] = .spdifOptIn(1)
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            print("SPDIFTEST applied"); fflush(stdout)
+            try? await Task.sleep(nanoseconds: 14_000_000_000)
+            setOpticalB(spdif: savedB)
+            router = savedRouter
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            print("SPDIFTEST restored"); fflush(stdout)
+            exit(0)
+        }
+    }
 
     /// Debug: temporarily route a mixer test path (see README), then restore and quit.
     func runSelfTest() {
@@ -496,7 +612,10 @@ final class ProFireModel: ObservableObject {
         io.async { [weak self] in
             guard let self else { return }
             let ok = (try? self.link.eap(DICE.ldFlashCfg)) ?? false
-            DispatchQueue.main.async { done(ok); if ok { self.loadRoutingFromDevice() } }
+            DispatchQueue.main.async {
+                done(ok)
+                if ok { self.loadRoutingFromDevice(); self.connect() }
+            }
         }
     }
 
@@ -550,7 +669,7 @@ final class ProFireModel: ObservableObject {
     static func portName(_ id: UInt8, asDest: Bool) -> String {
         let b = id >> 4, c = Int(id & 0xF)
         switch b {
-        case 0: return c < 2 ? "S/PDIF Coax \(c == 0 ? "L" : "R")" : c < 4 ? "S/PDIF Optical \(c == 2 ? "L" : "R")" : "AES \(c + 1)"
+        case 0: return c < 2 ? "S/PDIF Coax \(c == 0 ? "L" : "R")" : (c == 6 || c == 7) ? "S/PDIF Optical \(c == 6 ? "L" : "R")" : "AES \(c + 1)"
         case 1: return c < 8 ? "ADAT A \(c + 1)" : "ADAT B \(c - 7)"
         case 2: return asDest ? "Mixer In \(c + 1)" : (c < 2 ? "Mixer Master \(c == 0 ? "L" : "R")" : "Aux \(c / 2) \(c % 2 == 0 ? "L" : "R")")
         case 3: return "Mixer In \(c + 17)"
@@ -643,6 +762,35 @@ final class ProFireModel: ObservableObject {
 
     func level(source s: Signal) -> Float { s.port(mode).map { srcLevel[$0.id] ?? 0 } ?? 0 }
     func level(dest p: Port?) -> Float { p.map { dstLevel[$0.id] ?? 0 } ?? 0 }
-    func level(mixerChannel i: Int) -> Float { dstLevel[Port(Port.mixer, i).id] ?? 0 }
+    func level(mixerChannel i: Int) -> Float { Dest.mixerIn(i).port(mode).map { dstLevel[$0.id] ?? 0 } ?? 0 }
     func level(mixerOut o: Int) -> Float { srcLevel[Port(Port.mixer, o).id] ?? 0 }
+
+    // meter readings with peak hold / clip
+    private func reading(src id: UInt8?) -> MeterReading {
+        guard let id else { return MeterReading() }
+        return MeterReading(level: srcLevel[id] ?? 0, peak: srcPeak[id] ?? 0, clip: srcClip.contains(id))
+    }
+    private func reading(dst id: UInt8?) -> MeterReading {
+        guard let id else { return MeterReading() }
+        return MeterReading(level: dstLevel[id] ?? 0, peak: dstPeak[id] ?? 0, clip: dstClip.contains(id))
+    }
+    func meter(source s: Signal) -> MeterReading { reading(src: s.port(mode)?.id) }
+    func meter(dest p: Port?) -> MeterReading { reading(dst: p?.id) }
+    func meter(mixerChannel i: Int) -> MeterReading { reading(dst: Dest.mixerIn(i).port(mode)?.id) }
+    func meter(mixerOut o: Int) -> MeterReading { reading(src: Port(Port.mixer, o).id) }
+
+    // MARK: - mix bus outputs (which output pairs carry the master / an aux bus)
+
+    /// bus 0 = master, k = aux k
+    func busPair(_ bus: Int) -> SourcePair { bus == 0 ? .mixerMaster : .aux(bus) }
+    func outputs(ofBus bus: Int) -> [OutputPair] { OutputPair.allCases.filter { pairSource($0) == busPair(bus) } }
+    func setOutput(_ p: OutputPair, bus: Int, on: Bool) {
+        if on { setPair(p, busPair(bus)); return }
+        let (l, r) = p.dests
+        router.routes[l] = l.playbackSource; router.routes[r] = r.playbackSource
+    }
+}
+
+struct MeterReading: Equatable {
+    var level: Float = 0, peak: Float = 0, clip = false
 }

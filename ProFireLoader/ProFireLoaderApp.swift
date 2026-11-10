@@ -67,6 +67,7 @@ struct ProFireLoaderApp: App {
                     if args.contains("--activate") { manager.activate() }
                     else if args.contains("--deactivate") { manager.deactivate() }
                     if args.contains("--selftest") { model.runSelfTest() }
+                    if args.contains("--selftest-spdif") { model.runSPDIFSelfTest() }
                     // Debug: `--snapshot /path.png` renders this app's own window (no screen recording needed).
                     if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
                         let path = args[i + 1]

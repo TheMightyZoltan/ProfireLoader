@@ -20,6 +20,7 @@
 		996E969DA2EFCDF7F7BBE39B /* ProFireAudioDevice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 426FE4F15352B498ED1FDDC1 /* ProFireAudioDevice.cpp */; };
 		9A4ED6A9003A616FEA090F18 /* ProFireUserClient.iig in Sources */ = {isa = PBXBuildFile; fileRef = BFF54663BCF16B365550B3C8 /* ProFireUserClient.iig */; };
 		A7848B24187E4BDC0474FE5C /* Ports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3063F85E6E1CE530C6429ED7 /* Ports.swift */; };
+		E15BE70922ABE9E7AD8397CB /* MixerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD70898E1301FC3BDA999A51 /* MixerPanel.swift */; };
 		F0FF4AC13C3595A5E8CBA7AB /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A24FC02CD0A37E3BDF3B5F3 /* Views.swift */; };
 		F1D775FFD63787D1CACE42C8 /* ProFireUserClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7FCC780537C34EC13AA808E0 /* ProFireUserClient.cpp */; };
 		F5759C844BDBEFA4CA871504 /* ProFireAudioDevice.iig in Sources */ = {isa = PBXBuildFile; fileRef = 3F5CBA667A2CF163B348ED9A /* ProFireAudioDevice.iig */; };
@@ -72,6 +73,7 @@
 		B4F574AD258D197A659933DB /* ProFireLoaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProFireLoaderApp.swift; sourceTree = "<group>"; };
 		BFF54663BCF16B365550B3C8 /* ProFireUserClient.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = ProFireUserClient.iig; sourceTree = "<group>"; };
 		FC4F3C9F5805377D8898260D /* Common.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Common.cpp; sourceTree = "<group>"; };
+		FD70898E1301FC3BDA999A51 /* MixerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixerPanel.swift; sourceTree = "<group>"; };
 		FDAF1DF352DBA103B93E4E71 /* OHCI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OHCI.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -80,6 +82,7 @@
 			isa = PBXGroup;
 			children = (
 				3B044DBB74CEACA7D7AEDC89 /* DeviceLink.swift */,
+				FD70898E1301FC3BDA999A51 /* MixerPanel.swift */,
 				3063F85E6E1CE530C6429ED7 /* Ports.swift */,
 				B4F574AD258D197A659933DB /* ProFireLoaderApp.swift */,
 				87121B2F124889D699AD8180 /* ProFireModel.swift */,
@@ -230,6 +233,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				991131E8096977D0B7E3C9D2 /* DeviceLink.swift in Sources */,
+				E15BE70922ABE9E7AD8397CB /* MixerPanel.swift in Sources */,
 				A7848B24187E4BDC0474FE5C /* Ports.swift in Sources */,
 				369BF0358519C21F38A2357F /* ProFireLoaderApp.swift in Sources */,
 				5D1351EBFCDFFAD40B1CCA41 /* ProFireModel.swift in Sources */,
