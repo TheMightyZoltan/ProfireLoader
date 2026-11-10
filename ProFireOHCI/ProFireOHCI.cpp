@@ -29,6 +29,7 @@
 
 #include "ProFireOHCI.h"
 #include "OHCI.h"
+#include "DICE.h"
 
 #define LOG(fmt, ...) os_log(OS_LOG_DEFAULT, "ProFireOHCI: " fmt, ##__VA_ARGS__)
 
@@ -523,6 +524,186 @@ static void logDirectory(ProFireOHCI_IVars *iv, uint16_t node, RomCache &rc, int
     }
 }
 
+// ---------------------------------------------------------------------------
+// DICE register dump (stage 2a: read-only)
+// ---------------------------------------------------------------------------
+
+static const char *diceSourceName(uint32_t s)
+{
+    static const char *n[] = {"AES1", "AES2", "AES3", "AES4", "AES_ANY", "ADAT", "TDIF", "WordClock",
+                              "ARX1", "ARX2", "ARX3", "ARX4", "Internal"};
+    return s < dice::SrcCount ? n[s] : "?";
+}
+
+static const char *diceRateName(uint32_t idx)
+{
+    static const char *n[] = {"32k", "44.1k", "48k", "88.2k", "96k", "176.4k", "192k",
+                              "any-low", "any-mid", "any-high", "none"};
+    return idx < 11 ? n[idx] : "?";
+}
+
+// Append "word " to buf (no snprintf in DriverKit).
+static void appendWord(char *buf, uint32_t size, uint32_t &len, const char *word)
+{
+    for (const char *p = word; *p && len + 2 < size; p++) buf[len++] = *p;
+    if (len + 1 < size) buf[len++] = ' ';
+    buf[len] = 0;
+}
+
+// DICE strings are stored as quadlets whose bytes are little-endian relative to
+// the quadlet value, i.e. the first character is the value's low byte.
+static bool diceReadString(ProFireOHCI_IVars *iv, uint16_t node, uint32_t lo, uint32_t bytes,
+                           char *out, uint32_t outSize)
+{
+    uint32_t n = 0;
+    for (uint32_t off = 0; off < bytes && n + 4 < outSize; off += 4) {
+        uint32_t v = 0;
+        if (!readQuadlet(iv, node, lo + off, &v)) { out[n] = 0; return false; }
+        for (int b = 0; b < 4; b++) {
+            char c = char((v >> (8 * b)) & 0xFF);
+            if (c == 0) { out[n] = 0; return true; }
+            out[n++] = c;
+        }
+    }
+    out[n] = 0;
+    return true;
+}
+
+// "a\b\c\\" -> "a | b | c"
+static void diceSplitNames(char *s)
+{
+    char tmp[300]; uint32_t j = 0;
+    for (uint32_t i = 0; s[i] && j + 4 < sizeof(tmp); i++) {
+        if (s[i] == '\\') {
+            if (s[i + 1] == '\\' || s[i + 1] == 0) break;
+            tmp[j++] = ' '; tmp[j++] = '|'; tmp[j++] = ' ';
+        } else tmp[j++] = s[i];
+    }
+    tmp[j] = 0;
+    memcpy(s, tmp, j + 1);
+}
+
+static bool diceRead(ProFireOHCI_IVars *iv, uint16_t node, uint32_t lo, uint32_t *v)
+{
+    return readQuadlet(iv, node, lo, v);
+}
+
+static void dumpDiceStreams(ProFireOHCI_IVars *iv, uint16_t node, const char *dir, uint32_t base, bool isTx)
+{
+    using namespace dice;
+    uint32_t count = 0, size = 0;
+    if (!diceRead(iv, node, base + StreamNumber, &count) || !diceRead(iv, node, base + StreamSize, &size)) {
+        LOG("  %{public}s: unreadable", dir); return;
+    }
+    LOG("  %{public}s: %u stream(s), %u quadlets each", dir, count, size);
+    for (uint32_t i = 0; i < count && i < 4; i++) {
+        uint32_t e = base + StreamEntries + i * size * 4;
+        uint32_t iso = 0, audio = 0, midi = 0, x = 0;
+        diceRead(iv, node, e + (isTx ? TxIsoChannel : RxIsoChannel), &iso);
+        diceRead(iv, node, e + (isTx ? TxNumAudio : RxNumAudio), &audio);
+        diceRead(iv, node, e + (isTx ? TxNumMIDI : RxNumMIDI), &midi);
+        diceRead(iv, node, e + (isTx ? TxSpeed : RxSeqStart), &x);
+        LOG("    %{public}s[%u]: iso channel %d, %u audio + %u MIDI, %{public}s %u",
+            dir, i, int32_t(iso), audio, midi, isTx ? "speed" : "seq start", x);
+        if (size * 4 >= (isTx ? TxNames : RxNames) + 256) {
+            char names[300] = {};
+            diceReadString(iv, node, e + (isTx ? TxNames : RxNames), 256, names, sizeof(names));
+            diceSplitNames(names);
+            LOG("      names: %{public}s", names);
+        }
+    }
+}
+
+static void dumpDice(ProFireOHCI_IVars *iv, uint16_t node)
+{
+    using namespace dice;
+    LOG("---- DICE registers of node 0x%04x ----", node);
+
+    uint32_t sec[SectionCount * 2] = {};
+    for (int i = 0; i < SectionCount * 2; i++) {
+        if (!diceRead(iv, node, kBaseLo + 4 * i, &sec[i])) { LOG("cannot read DICE section table"); return; }
+    }
+    static const char *secName[] = {"global", "tx", "rx", "ext_sync", "unused2"};
+    for (int i = 0; i < SectionCount; i++)
+        LOG("  section %{public}s: offset 0x%x, size %u quadlets", secName[i], sec[2 * i] * 4, sec[2 * i + 1]);
+
+    uint32_t g = kBaseLo + sec[2 * Global] * 4, gSize = sec[2 * Global + 1] * 4;
+    uint32_t ownHi = 0, ownLo = 0, notif = 0, cs = 0, en = 0, st = 0, xst = 0, rate = 0, ver = 0;
+    diceRead(iv, node, g + GlobalOwnerHi, &ownHi);
+    diceRead(iv, node, g + GlobalOwnerLo, &ownLo);
+    diceRead(iv, node, g + GlobalNotification, &notif);
+    diceRead(iv, node, g + GlobalClockSelect, &cs);
+    diceRead(iv, node, g + GlobalEnable, &en);
+    diceRead(iv, node, g + GlobalStatus, &st);
+    diceRead(iv, node, g + GlobalExtendedStatus, &xst);
+    diceRead(iv, node, g + GlobalSampleRate, &rate);
+    diceRead(iv, node, g + GlobalVersion, &ver);
+
+    char nick[80] = {};
+    diceReadString(iv, node, g + GlobalNickName, 64, nick, sizeof(nick));
+
+    uint64_t owner = (uint64_t(ownHi) << 32) | ownLo;
+    LOG("  nickname \"%{public}s\", DICE interface version %u.%u.%u.%u",
+        nick, ver >> 24, (ver >> 16) & 0xFF, (ver >> 8) & 0xFF, ver & 0xFF);
+    if (owner == kOwnerNoOwner) LOG("  owner: none");
+    else LOG("  owner: node 0x%04x, notify address 0x%04x%08x", uint32_t(owner >> 48), uint32_t(owner >> 32) & 0xFFFF, ownLo);
+    LOG("  clock select 0x%08x: rate %{public}s, source %{public}s", cs,
+        diceRateName((cs & kRateMask) >> kRateShift), diceSourceName(cs & kSourceMask));
+    LOG("  status 0x%08x: %{public}s, nominal %{public}s; ext status 0x%08x; measured rate %u Hz; streaming %{public}s; last notification 0x%08x",
+        st, (st & kStatusLocked) ? "LOCKED" : "not locked", diceRateName((st & kRateMask) >> kRateShift),
+        xst, rate, en ? "ENABLED" : "off", notif);
+
+    if (gSize > GlobalClockSourceNames) {
+        uint32_t caps = 0;
+        diceRead(iv, node, g + GlobalClockCaps, &caps);
+        char rates[80] = {}, srcs[160] = {};
+        uint32_t rn = 0, sn = 0;
+        for (uint32_t i = 0; i < kRateCount; i++)
+            if (caps & (1u << i)) appendWord(rates, sizeof(rates), rn, diceRateName(i));
+        for (uint32_t i = 0; i < SrcCount; i++)
+            if (caps & (1u << (16 + i))) appendWord(srcs, sizeof(srcs), sn, diceSourceName(i));
+        LOG("  clock caps 0x%08x: rates [ %{public}s] sources [ %{public}s]", caps, rates, srcs);
+
+        char names[300] = {};
+        diceReadString(iv, node, g + GlobalClockSourceNames, 256, names, sizeof(names));
+        diceSplitNames(names);
+        LOG("  clock source names: %{public}s", names);
+    }
+
+    dumpDiceStreams(iv, node, "tx (device -> Mac)", kBaseLo + sec[2 * Tx] * 4, true);
+    dumpDiceStreams(iv, node, "rx (Mac -> device)", kBaseLo + sec[2 * Rx] * 4, false);
+
+    if (sec[2 * ExtSync + 1] >= 4) {
+        uint32_t e = kBaseLo + sec[2 * ExtSync] * 4, src = 0, lk = 0, r = 0, adat = 0;
+        diceRead(iv, node, e + ExtSyncClockSource, &src);
+        diceRead(iv, node, e + ExtSyncLocked, &lk);
+        diceRead(iv, node, e + ExtSyncRate, &r);
+        diceRead(iv, node, e + ExtSyncADATUser, &adat);
+        LOG("  ext sync: source %{public}s, locked %u, rate %{public}s, ADAT user data 0x%x",
+            diceSourceName(src), lk, diceRateName(r), adat);
+    }
+
+    // TCAT extended application space (router, stream config, mixer...) if present.
+    uint32_t ext[ExtSectionCount * 2] = {};
+    bool haveExt = true;
+    for (int i = 0; i < ExtSectionCount * 2 && haveExt; i++)
+        haveExt = diceRead(iv, node, kExtBaseLo + 4 * i, &ext[i]);
+    if (!haveExt) {
+        LOG("  no TCAT extended application space (plain DICE II register set)");
+    } else {
+        static const char *extName[] = {"caps", "cmd", "mixer", "peak", "router", "stream_config",
+                                        "current_config", "standalone_config", "application"};
+        for (int i = 0; i < ExtSectionCount; i++)
+            LOG("  ext section %{public}s: offset 0x%x, size %u quadlets", extName[i], ext[2 * i] * 4, ext[2 * i + 1]);
+        if (ext[2 * ExtCaps + 1] >= 4) {
+            uint32_t c[4] = {};
+            for (int i = 0; i < 4; i++) diceRead(iv, node, kExtBaseLo + ext[2 * ExtCaps] * 4 + 4 * i, &c[i]);
+            LOG("  ext caps: router 0x%08x mixer 0x%08x general 0x%08x reserved 0x%08x", c[0], c[1], c[2], c[3]);
+        }
+    }
+    LOG("---- DICE dump done ----");
+}
+
 static void scanNode(ProFireOHCI_IVars *iv, uint8_t phyId)
 {
     uint16_t node = 0xFFC0 | phyId;
@@ -541,6 +722,7 @@ static void scanNode(ProFireOHCI_IVars *iv, uint8_t phyId)
     }
     if (!ok) { LOG("node %u: no readable config ROM", phyId); IOSafeDeleteNULL(rc, RomCache, 1); return; }
 
+    bool isDice = false;
     uint32_t infoLen = q0 >> 24, crcLen = (q0 >> 16) & 0xFF;
     LOG("ROM header 0x%08x (info_length %u, crc_length %u)", q0, infoLen, crcLen);
 
@@ -558,6 +740,7 @@ static void scanNode(ProFireOHCI_IVars *iv, uint8_t phyId)
             LOG("GUID %08x%08x  vendor OUI 0x%06x%{public}s", gHi, gLo, oui,
                 oui == 0x000D6C ? " (M-Audio)" : oui == 0x000166 ? " (TC Electronic)" : "");
             logDirectory(iv, node, *rc, 1 + int(infoLen), 0);
+            isDice = (gHi & 0xFF) == 0x04;   // GUID category byte 0x04 = TCAT DICE
         }
     }
 
@@ -565,6 +748,8 @@ static void scanNode(ProFireOHCI_IVars *iv, uint8_t phyId)
     for (int i = 0; i < kMaxRomQuadlets; i++) if (rc->have[i]) count++;
     LOG("---- node %u: done, %d ROM quadlets read ----", phyId, count);
     IOSafeDeleteNULL(rc, RomCache, 1);
+
+    if (isDice) dumpDice(iv, node);
 }
 
 // ---------------------------------------------------------------------------
