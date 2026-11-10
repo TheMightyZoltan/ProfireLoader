@@ -26,6 +26,35 @@ isochronous AM824 streaming, and an AudioDriverKit device.
 
 The dext matches only the FW643 (`IOPCIMatch 0x590111c1`, `IOPCITunnelCompatible`).
 
+## ProFire Control (the control panel)
+
+`/Applications/ProFireLoader.app`, shown as **ProFire Control**, replaces M-Audio's ProFire control panel:
+
+| Tab | What it does |
+|---|---|
+| **Mixer** | 16 channels in 8 linkable pairs. Each has a source (analog, ADAT A/B, S/PDIF, software return 1–26), fader (−∞…+12 dB), pan, mute and solo, plus 7 pre-fader **aux sends** (pick "Aux k" at the top). Master mix = DICE mixer outputs 1/2, aux k = outputs 2k+1/2k+2. |
+| **Router** | Per output pair (analog 1/2…7/8, S/PDIF coax, ADAT A/B pairs), pick a source pair: software returns, Mixer Master, Aux sends, or inputs directly. Applied to both the 44.1/48 and 88.2/96 kHz configurations. |
+| **Hardware** | Sample rate (through Core Audio), clock source (Internal, S/PDIF coax, Optical A/B, Word Clock), lock indicators for each external input, optical port B mode (ADAT or optical S/PDIF), which output pairs the master volume knob controls, standalone clock source, and **Save Settings to ProFire** (flash). |
+| **Meters** | Live levels for all inputs, software returns and hardware outputs, from the DICE router's peak meters. |
+| **Driver** | Install, update or uninstall the driver, plus connection status. |
+
+The mixer and router settings live in the app and are pushed to the ProFire when the app connects, the way M-Audio's agent restored them. The ProFire boots with a muted mixer. Routes to the computer inputs aren't touched.
+
+**Under the hood:** the dext's `ProFireUserClient` (`IOServiceOpen` type `0xFD000000`) provides info, DICE read/write (block transfers, with a quadlet fallback for regions like the mixer that don't take block reads) and EAP commands. `tools/pfreg` exposes the same from the command line:
+
+```bash
+build/pfreg read 0xE0200D24 64     # current low-rate router (count + entries)
+build/pfreg write 0xE0200068 0x4000
+build/pfreg eap 0x10001             # LD_ROUTER, low rates
+```
+
+Measured device facts, used by the app:
+- **Mixer:** 18 inputs × 16 outputs. Coefficient `(out, in)` is at mixer quadlet `1 + out·18 + in`, linear 16-bit, `0x4000` = 0 dB, `0xFFFF` ≈ +12 dB. The mixer region rejects block reads.
+- **Router entries:** `(source << 8) | destination`, each byte `block << 4 | channel`. Blocks: AES 0, ADAT 1, mixer 2 (mixer inputs 2/3 as destinations), analog InS1 5, FireWire streams 0xB/0xC, mute 0xF.
+- **Peak meters:** bits 27:16 of each peak entry are a 12-bit linear level for that route.
+- **Application space quadlet 0:** bits 0–3 = master volume knob pairs, bit 28 = optical port B in S/PDIF mode.
+- **Self-test:** `ProFireLoader --selftest` routes ADAT B In 1 → mixer ch 1 (−6 dB) → Mixer Master → ADAT A Out 3/4. With the optical loop, a −12 dBFS tone on output 11 comes back at −18.0 dBFS on inputs 21/22, which verifies source selection, coefficients, pan law and routing. Settings are restored afterwards.
+
 ## How it works
 
 | File | Role |
@@ -35,7 +64,9 @@ The dext matches only the FW643 (`IOPCIMatch 0x590111c1`, `IOPCITunnelCompatible
 | `ProFireOHCI/Amdtp.*` | IR/IT DMA rings (packet-per-buffer, 256 packets each), AM824 encode/decode, timestamps |
 | `ProFireOHCI/ProFireOHCI.*` | `IOUserAudioDriver`: discovery, Core Audio device, start/stop, rate changes, developer commands |
 | `ProFireOHCI/ProFireAudioDevice.*` | `IOUserAudioDevice` subclass forwarding StartIO/StopIO/rate changes |
-| `ProFireLoader/` | SwiftUI app that installs the dext (`--activate` / `--deactivate`) |
+| `ProFireLoader/` | **ProFire Control** app: mixer, router, hardware settings, meters, driver install (`--activate` / `--deactivate`) |
+| `ProFireOHCI/ProFireUserClient.*` | control-panel user client (DICE read/write, EAP commands) |
+| `tools/pfreg.swift` | raw DICE register access from the command line |
 | `tools/pfctl.c` | developer commands to the running driver |
 | `tools/pftest.swift` | Core Audio loopback test: tone on one output, peaks for all inputs, glitch analysis of one input |
 | `tools/deploy.sh` | install + activate + hands-free switch to the new build |
@@ -103,7 +134,7 @@ Live log:
 - **CLOCK_ACCEPTED notifications** don't arrive at the physical-DMA notification address. Clock changes are confirmed by polling lock status instead.
 - **MIDI** ports are carried as empty slots and not yet exposed.
 - **Startup:** a handful of glitch samples can occur in the first moments after a stream starts.
-- **No mixer/control panel.** The router follows the device's stored host configuration.
+- **Control panel not yet verified with external clocks:** S/PDIF, ADAT and word clock haven't been tested as clock sources, and optical S/PDIF output routing at port B is unverified.
 
 ## Reference material
 

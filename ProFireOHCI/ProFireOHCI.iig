@@ -36,6 +36,12 @@ public:
     kern_return_t StartStreaming() LOCALONLY;
     kern_return_t StopStreaming() LOCALONLY;
     kern_return_t ChangeRate(double rate) LOCALONLY;
+
+    // Called by ProFireUserClient (control panel).
+    void ControlInfo(uint64_t * info, uint32_t count) LOCALONLY;
+    kern_return_t ControlRead(uint32_t lo, uint8_t * buf, uint32_t bytes) LOCALONLY;
+    kern_return_t ControlWrite(uint32_t lo, const uint8_t * buf, uint32_t bytes) LOCALONLY;
+    bool ControlEAP(uint32_t opcode) LOCALONLY;
 };
 
 #endif /* ProFireOHCI_h */

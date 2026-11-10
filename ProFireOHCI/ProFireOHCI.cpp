@@ -20,6 +20,7 @@
 
 #include "ProFireOHCI.h"
 #include "ProFireAudioDevice.h"
+#include <DriverKit/IOUserClient.h>
 #include "Common.h"
 #include "FWController.h"
 #include "Dice.h"
@@ -410,8 +411,75 @@ kern_return_t IMPL(ProFireOHCI, SetProperties)
     return handleCommand(this, ivars, cmd->getCStringNoCopy());
 }
 
+// ---------------------------------------------------------------------------
+// Control panel access
+// ---------------------------------------------------------------------------
+
+void ProFireOHCI::ControlInfo(uint64_t *info, uint32_t count)
+{
+    auto *iv = ivars;
+    uint64_t v[8] = { iv->diceFound ? 1u : 0u, iv->dice.node, uint64_t(iv->rate), iv->streaming ? 1u : 0u,
+                      0, iv->dice.numTx, iv->dice.numRx, iv->streaming ? iv->engine.sampleTime() : 0 };
+    if (iv->diceFound) v[4] = iv->dice.locked() ? 1 : 0;
+    for (uint32_t i = 0; i < count && i < 8; i++) info[i] = v[i];
+}
+
+kern_return_t ProFireOHCI::ControlRead(uint32_t lo, uint8_t *buf, uint32_t bytes)
+{
+    auto *iv = ivars;
+    if (!iv->diceFound) return kIOReturnNoDevice;
+    if (bytes == 4) {
+        uint32_t v = 0;
+        if (!iv->fw.readQuadlet(iv->dice.node, 0xFFFF, lo, &v)) return kIOReturnIOError;
+        buf[0] = uint8_t(v >> 24); buf[1] = uint8_t(v >> 16); buf[2] = uint8_t(v >> 8); buf[3] = uint8_t(v);
+        return kIOReturnSuccess;
+    }
+    if (iv->fw.readBlock(iv->dice.node, 0xFFFF, lo, buf, bytes)) return kIOReturnSuccess;
+    // Some DICE regions (e.g. the EAP mixer) don't answer block reads: fall back to quadlets.
+    for (uint32_t off = 0; off < bytes; off += 4) {
+        uint32_t v = 0;
+        if (!iv->fw.readQuadlet(iv->dice.node, 0xFFFF, lo + off, &v)) return kIOReturnIOError;
+        buf[off] = uint8_t(v >> 24); buf[off + 1] = uint8_t(v >> 16); buf[off + 2] = uint8_t(v >> 8); buf[off + 3] = uint8_t(v);
+    }
+    return kIOReturnSuccess;
+}
+
+kern_return_t ProFireOHCI::ControlWrite(uint32_t lo, const uint8_t *buf, uint32_t bytes)
+{
+    auto *iv = ivars;
+    if (!iv->diceFound) return kIOReturnNoDevice;
+    if (bytes == 4) {
+        uint32_t v = (uint32_t(buf[0]) << 24) | (uint32_t(buf[1]) << 16) | (uint32_t(buf[2]) << 8) | buf[3];
+        return iv->fw.writeQuadlet(iv->dice.node, 0xFFFF, lo, v) ? kIOReturnSuccess : kIOReturnIOError;
+    }
+    if (iv->fw.writeBlock(iv->dice.node, 0xFFFF, lo, buf, bytes)) return kIOReturnSuccess;
+    for (uint32_t off = 0; off < bytes; off += 4) {
+        uint32_t v = (uint32_t(buf[off]) << 24) | (uint32_t(buf[off + 1]) << 16) | (uint32_t(buf[off + 2]) << 8) | buf[off + 3];
+        if (!iv->fw.writeQuadlet(iv->dice.node, 0xFFFF, lo + off, v)) return kIOReturnIOError;
+    }
+    return kIOReturnSuccess;
+}
+
+bool ProFireOHCI::ControlEAP(uint32_t opcode)
+{
+    auto *iv = ivars;
+    if (!iv->diceFound) return false;
+    bool ok = iv->dice.eapCommand(opcode);
+    // A router change from the panel is what the device should keep using after a restart.
+    if (ok && (opcode & 0xFFFF) == 0x0001) iv->routerLoaded = true;
+    return ok;
+}
+
 kern_return_t IMPL(ProFireOHCI, NewUserClient)
 {
+    if (type == 0xFD000000) {
+        IOService *client = nullptr;
+        kern_return_t r = Create(this, "ProFireUserClientProperties", &client);
+        if (r != kIOReturnSuccess) { LOG("control client create failed 0x%x", r); return r; }
+        *userClient = OSDynamicCast(IOUserClient, client);
+        if (!*userClient) { client->release(); return kIOReturnError; }
+        return kIOReturnSuccess;
+    }
     if ((type >> 24) != 0xFE) return NewUserClient(type, userClient, SUPERDISPATCH);
     char c = char((type >> 16) & 0xFF);
     uint32_t arg = type & 0xFFFF;

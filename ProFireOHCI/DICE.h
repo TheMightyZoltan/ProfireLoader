@@ -39,6 +39,7 @@ public:
     void peek(uint32_t lo, uint32_t count);
     bool loadHostRouter();          // activate the stored host routing (EAP LD_ROUTER)
     bool eapCommand(uint32_t opcode);
+    FWController *bus() const { return fw; }
     uint32_t ext[18] = {};
     bool haveExt = false;
 

@@ -34,6 +34,9 @@ public:
     bool writeQuadlet(uint16_t node, uint16_t hi, uint32_t lo, uint32_t v);
     bool compareSwap32(uint16_t node, uint16_t hi, uint32_t lo, uint32_t arg, uint32_t data, uint32_t *old);
     bool compareSwap64(uint16_t node, uint16_t hi, uint32_t lo, uint64_t arg, uint64_t data, uint64_t *old);
+    // Block transfers (bytes multiple of 4, <= 512 per transaction; longer requests are split).
+    bool readBlock(uint16_t node, uint16_t hi, uint32_t lo, uint8_t *buf, uint32_t bytes);
+    bool writeBlock(uint16_t node, uint16_t hi, uint32_t lo, const uint8_t *buf, uint32_t bytes);
 
     // Config ROM summary of a remote node.
     struct RomInfo { uint32_t guidHi = 0, guidLo = 0, vendor = 0, model = 0; char vendorName[32] = {}, modelName[32] = {}; };
@@ -69,10 +72,10 @@ private:
     bool     stopContext(uint32_t base);
     void     armARResponse();
     uint32_t arBytesWritten();
-    int      arFindResponse(uint16_t src, uint8_t tl, uint32_t *tcode, uint32_t *rcode, uint8_t *data, uint32_t *dataLen);
+    int      arFindResponse(uint16_t src, uint8_t tl, uint32_t *tcode, uint32_t *rcode, uint8_t *data, uint32_t cap, uint32_t *dataLen);
     uint32_t atSend(const uint32_t hdr[4], uint32_t hdrLen, const uint8_t *payload, uint32_t plen);
     bool     transact(uint16_t node, const uint32_t hdrIn[4], uint32_t hdrLen, const uint8_t *payload, uint32_t plen,
-                      uint32_t expectTcode, uint8_t *resp, uint32_t *respLen, const char *what, uint32_t lo);
+                      uint32_t expectTcode, uint8_t *resp, uint32_t respCap, uint32_t *respLen, const char *what, uint32_t lo);
     void     handleSelfIDs();
 };
 

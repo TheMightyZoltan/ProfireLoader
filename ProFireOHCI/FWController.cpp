@@ -14,7 +14,7 @@ static constexpr uint32_t kOffSelfID    = 0x0800;   // 2 KiB aligned
 static constexpr uint32_t kSelfIDBytes  = 2048;
 static constexpr uint32_t kOffATDesc    = 0x1000;   // 2 descriptor blocks + 1 descriptor
 static constexpr uint32_t kOffARDesc    = 0x1040;
-static constexpr uint32_t kOffATPayload = 0x1100;   // up to 256 bytes
+static constexpr uint32_t kOffATPayload = 0x1200;   // up to 512 bytes
 static constexpr uint32_t kOffNotify    = 0x1800;   // DICE notification target
 static constexpr uint32_t kARBufSize    = 16384;
 static constexpr uint32_t kARResetMark  = 12288;
@@ -140,7 +140,7 @@ uint32_t FWController::arBytesWritten()
 
 // 1 = found, 0 = not yet, -1 = parse error
 int FWController::arFindResponse(uint16_t src, uint8_t tl, uint32_t *tcodeOut, uint32_t *rcode,
-                                 uint8_t *data, uint32_t *dataLen)
+                                 uint8_t *data, uint32_t cap, uint32_t *dataLen)
 {
     uint32_t avail = arBytesWritten();
     while (arReadPos + 16 <= avail) {
@@ -163,7 +163,7 @@ int FWController::arFindResponse(uint16_t src, uint8_t tl, uint32_t *tcodeOut, u
         if (tcode != TCode_LinkInternal && ((h0 >> 10) & 0x3F) == tl && (h1 >> 16) == src) {
             *tcodeOut = tcode;
             *rcode = (h1 >> 12) & 0xF;
-            uint32_t n = dlen > 16 ? 16 : dlen;
+            uint32_t n = dlen > cap ? cap : dlen;
             const volatile uint8_t *src8 = reinterpret_cast<const volatile uint8_t *>(
                 tcode == TCode_ReadQuadletResponse ? &p[3] : &p[4]);
             for (uint32_t i = 0; i < n; i++) data[i] = src8[i];
@@ -224,7 +224,7 @@ uint32_t FWController::atSend(const uint32_t hdr[4], uint32_t hdrLen, const uint
 
 bool FWController::transact(uint16_t node, const uint32_t hdrIn[4], uint32_t hdrLen,
                             const uint8_t *payload, uint32_t plen, uint32_t expectTcode,
-                            uint8_t *resp, uint32_t *respLen, const char *what, uint32_t lo)
+                            uint8_t *resp, uint32_t respCap, uint32_t *respLen, const char *what, uint32_t lo)
 {
     IOLockLock(lock);
     bool ok = false;
@@ -250,12 +250,11 @@ bool FWController::transact(uint16_t node, const uint32_t hdrIn[4], uint32_t hdr
         uint64_t deadline = nowNs() + 100ull * 1000 * 1000;
         while (nowNs() < deadline) {
             uint32_t tcode = 0, rcode = 0, dlen = 0;
-            uint8_t data[16];
-            int r = arFindResponse(node, tl, &tcode, &rcode, data, &dlen);
+            int r = arFindResponse(node, tl, &tcode, &rcode, resp, respCap, &dlen);
             if (r == 1) {
                 if (rcode != RCode_Complete) { LOG("%{public}s 0x%04x:%08x -> rcode %u", what, node, lo, rcode); attempt = 99; break; }
                 if (tcode != expectTcode) { LOG("%{public}s: unexpected response tcode 0x%x", what, tcode); attempt = 99; break; }
-                if (resp && respLen) { for (uint32_t i = 0; i < dlen; i++) resp[i] = data[i]; *respLen = dlen; }
+                if (respLen) *respLen = dlen;
                 ok = true;
                 break;
             }
@@ -272,7 +271,7 @@ bool FWController::readQuadlet(uint16_t node, uint16_t hi, uint32_t lo, uint32_t
 {
     uint32_t hdr[4] = { (1u << 8) | (TCode_ReadQuadletRequest << 4), (uint32_t(node) << 16) | hi, lo, 0 };
     uint8_t d[16]; uint32_t n = 0;
-    if (!transact(node, hdr, 12, nullptr, 0, TCode_ReadQuadletResponse, d, &n, "read", lo) || n < 4) return false;
+    if (!transact(node, hdr, 12, nullptr, 0, TCode_ReadQuadletResponse, d, sizeof(d), &n, "read", lo) || n < 4) return false;
     *v = (uint32_t(d[0]) << 24) | (uint32_t(d[1]) << 16) | (uint32_t(d[2]) << 8) | d[3];
     return true;
 }
@@ -281,7 +280,7 @@ bool FWController::writeQuadlet(uint16_t node, uint16_t hi, uint32_t lo, uint32_
 {
     uint32_t hdr[4] = { (1u << 8) | (TCode_WriteQuadletRequest << 4), (uint32_t(node) << 16) | hi, lo, __builtin_bswap32(v) };
     uint32_t n = 0;
-    return transact(node, hdr, 16, nullptr, 0, TCode_WriteResponse, nullptr, &n, "write", lo);
+    return transact(node, hdr, 16, nullptr, 0, TCode_WriteResponse, nullptr, 0, &n, "write", lo);
 }
 
 static void putBE32(uint8_t *p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = uint8_t(v); }
@@ -292,7 +291,7 @@ bool FWController::compareSwap32(uint16_t node, uint16_t hi, uint32_t lo, uint32
     uint8_t pl[8]; putBE32(pl, arg); putBE32(pl + 4, data);
     uint32_t hdr[4] = { (1u << 8) | (TCode_LockRequest << 4), (uint32_t(node) << 16) | hi, lo, (8u << 16) | 2 };
     uint8_t d[16]; uint32_t n = 0;
-    if (!transact(node, hdr, 16, pl, 8, TCode_LockResponse, d, &n, "lock32", lo) || n < 4) return false;
+    if (!transact(node, hdr, 16, pl, 8, TCode_LockResponse, d, sizeof(d), &n, "lock32", lo) || n < 4) return false;
     *old = getBE32(d);
     return true;
 }
@@ -304,8 +303,32 @@ bool FWController::compareSwap64(uint16_t node, uint16_t hi, uint32_t lo, uint64
     putBE32(pl + 8, uint32_t(data >> 32)); putBE32(pl + 12, uint32_t(data));
     uint32_t hdr[4] = { (1u << 8) | (TCode_LockRequest << 4), (uint32_t(node) << 16) | hi, lo, (16u << 16) | 2 };
     uint8_t d[16]; uint32_t n = 0;
-    if (!transact(node, hdr, 16, pl, 16, TCode_LockResponse, d, &n, "lock64", lo) || n < 8) return false;
+    if (!transact(node, hdr, 16, pl, 16, TCode_LockResponse, d, sizeof(d), &n, "lock64", lo) || n < 8) return false;
     *old = (uint64_t(getBE32(d)) << 32) | getBE32(d + 4);
+    return true;
+}
+
+bool FWController::readBlock(uint16_t node, uint16_t hi, uint32_t lo, uint8_t *buf, uint32_t bytes)
+{
+    while (bytes) {
+        uint32_t n = bytes > 512 ? 512 : bytes;
+        uint32_t hdr[4] = { (1u << 8) | (TCode_ReadBlockRequest << 4), (uint32_t(node) << 16) | hi, lo, n << 16 };
+        uint32_t got = 0;
+        if (!transact(node, hdr, 16, nullptr, 0, TCode_ReadBlockResponse, buf, n, &got, "readblk", lo) || got < n) return false;
+        buf += n; lo += n; bytes -= n;
+    }
+    return true;
+}
+
+bool FWController::writeBlock(uint16_t node, uint16_t hi, uint32_t lo, const uint8_t *buf, uint32_t bytes)
+{
+    while (bytes) {
+        uint32_t n = bytes > 512 ? 512 : bytes;
+        uint32_t hdr[4] = { (1u << 8) | (TCode_WriteBlockRequest << 4), (uint32_t(node) << 16) | hi, lo, n << 16 };
+        uint32_t got = 0;
+        if (!transact(node, hdr, 16, buf, n, TCode_WriteResponse, nullptr, 0, &got, "writeblk", lo)) return false;
+        buf += n; lo += n; bytes -= n;
+    }
     return true;
 }
 

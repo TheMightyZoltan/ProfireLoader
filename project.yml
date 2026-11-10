@@ -52,7 +52,7 @@ targets:
         PRODUCT_NAME: ProFireLoader
         PRODUCT_BUNDLE_IDENTIFIER: local.profire.Loader
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: ProFire Loader
+        INFOPLIST_KEY_CFBundleDisplayName: ProFire Control
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         CODE_SIGN_ENTITLEMENTS: ProFireLoader/ProFireLoader.entitlements
         ENABLE_HARDENED_RUNTIME: YES

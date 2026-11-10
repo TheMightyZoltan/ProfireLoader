@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import AppKit
 import SystemExtensions
 
 private let dextIdentifier = "local.profire.Loader.ProFireOHCI"
@@ -53,32 +54,35 @@ final class ExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
 @main
 struct ProFireLoaderApp: App {
     @StateObject private var manager = ExtensionManager()
+    @StateObject private var model = ProFireModel()
 
     var body: some Scene {
-        WindowGroup("ProFire Driver Loader") {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("ProFire OHCI test driver").font(.headline)
-                Text("Stage 1: brings up the FireWire bus and logs each device's config ROM.")
-                    .font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    Button("Install / Activate") { manager.activate() }
-                    Button("Uninstall") { manager.deactivate() }
+        WindowGroup("ProFire Control") {
+            ContentView()
+                .environmentObject(model)
+                .environmentObject(manager)
+                .onAppear {
+                    // `open ProFireLoader.app --args --activate` / `--deactivate` for scripted installs.
+                    let args = CommandLine.arguments
+                    if args.contains("--activate") { manager.activate() }
+                    else if args.contains("--deactivate") { manager.deactivate() }
+                    if args.contains("--selftest") { model.runSelfTest() }
+                    // Debug: `--snapshot /path.png` renders this app's own window (no screen recording needed).
+                    if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
+                        let path = args[i + 1]
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { snapshotOwnWindow(to: path) }
+                    }
                 }
-                Text(manager.status).font(.callout).textSelection(.enabled)
-                Divider()
-                Text("Watch the driver log in Terminal:").font(.callout)
-                Text("log stream --level debug --predicate 'eventMessage CONTAINS \"ProFireOHCI\"'")
-                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-            }
-            .padding(20)
-            .frame(minWidth: 520)
-            .onAppear {
-                // `open ProFireLoader.app --args --activate` / `--deactivate` for scripted testing.
-                let args = CommandLine.arguments
-                if args.contains("--activate") { manager.activate() }
-                else if args.contains("--deactivate") { manager.deactivate() }
-            }
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
+}
+
+func snapshotOwnWindow(to path: String) {
+    let wins = NSApp.windows
+    FileHandle.standardError.write("snapshot: \(wins.count) windows: \(wins.map { "\($0.title) visible=\($0.isVisible) \($0.frame)" })\n".data(using: .utf8)!)
+    guard let view = (wins.first(where: { $0.isVisible && $0.contentView != nil }) ?? wins.first)?.contentView,
+          let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+    view.cacheDisplay(in: view.bounds, to: rep)
+    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
 }
