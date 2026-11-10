@@ -8,7 +8,8 @@
 
 using namespace ohci;
 
-static constexpr uint32_t kITBlock = 48;   // OUTPUT_MORE_Immediate (32) + OUTPUT_LAST (16)
+// OUTPUT_MORE_Immediate (32) + OUTPUT_LAST (16), padded to 64 so no block crosses a 4 KiB page
+static constexpr uint32_t kITBlock = 64;
 
 static inline uint32_t be(uint32_t v) { return __builtin_bswap32(v); }
 
