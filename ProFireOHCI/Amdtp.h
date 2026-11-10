@@ -41,6 +41,8 @@ public:
     // Self-test: sine on one output channel (0-based, -1 = off), input level logging.
     int  toneChannel = -1;
     bool levelLog = false;
+    bool itCycleMatch = true;        // start IT with cycleMatch (tunable)
+    bool restartITRequested = false;
 
     kern_return_t start(FWController *fw, const Config &cfg);
     void stop();
@@ -92,6 +94,8 @@ private:
     void  writeIT(int s, uint64_t absCycle, uint32_t blocks, uint16_t syt, uint64_t firstFrame);
     void  startIT(uint64_t firstIRAbs);
     void  logStats();
+    void  checkITDead();
+    bool  itDeadLogged = false;
 };
 
 #endif /* Amdtp_h */

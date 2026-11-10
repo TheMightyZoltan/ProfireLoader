@@ -411,10 +411,12 @@ kern_return_t IMPL(ProFireOHCI, NewUserClient)
         case 'Y': word = "delay"; break;
         case 'O': word = "tone"; break;
         case 'A': word = "rate"; arg *= 10; break;
+        case 'I': word = "itrestart"; break;
+        case 'M': word = "itcm"; break;
         default: return kIOReturnBadArgument;
     }
     for (const char *p = word; *p; p++) buf[n++] = *p;
-    if (c == 'Y' || c == 'O' || c == 'A') {
+    if (c == 'Y' || c == 'O' || c == 'A' || c == 'M') {
         buf[n++] = ' ';
         char tmp[12]; uint32_t k = 0, v = arg;
         do { tmp[k++] = char('0' + v % 10); v /= 10; } while (v);
@@ -453,6 +455,8 @@ static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, con
         iv->engine.levelLog = !iv->engine.levelLog;
     } else if (eq("notone")) {
         iv->engine.toneChannel = -1;
+    } else if (eq("itrestart")) {
+        iv->engine.restartITRequested = true;
     } else {
         // "<word> <number>" commands
         uint32_t n = 0; const char *p = c;
@@ -464,6 +468,7 @@ static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, con
         auto is = [&](const char *w) { uint32_t i = 0; while (w[i] && i < wl && w[i] == c[i]) i++; return !w[i] && i == wl; };
         if (hasNum && is("delay")) { iv->delayCycles = n; LOG("transfer delay -> %u cycles (applies on next start)", n); }
         else if (hasNum && is("tone")) { iv->engine.toneChannel = int(n) - 1; LOG("tone -> output %u", n); }
+        else if (hasNum && is("itcm")) { iv->engine.itCycleMatch = n != 0; LOG("IT cycle match %{public}s", n ? "on" : "off"); }
         else if (hasNum && is("rate")) { self->ChangeRate(double(n)); }
         else return kIOReturnUnsupported;
     }

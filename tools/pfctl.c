@@ -21,6 +21,8 @@ int main(int argc, char **argv)
     else if (!strcmp(w, "delay")) c = 'Y';
     else if (!strcmp(w, "tone")) c = argc > 2 ? 'O' : 'T';
     else if (!strcmp(w, "rate")) { c = 'A'; arg /= 10; }
+    else if (!strcmp(w, "itrestart")) c = 'I';
+    else if (!strcmp(w, "itcm")) c = 'M';
     else { fprintf(stderr, "unknown command %s\n", w); return 2; }
     io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI"));
     if (!svc) { fprintf(stderr, "ProFireOHCI service not found\n"); return 1; }

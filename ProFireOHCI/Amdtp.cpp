@@ -184,7 +184,8 @@ void AmdtpEngine::programIT(int o)
     uint64_t m = itStartAbs % 64000;
     uint32_t match = uint32_t((((m / 8000) & 3) << 13) | (m % 8000));
     fw->wr(base + CtxCommandPtr, it[o].desc.iova(0) | 3);
-    fw->wr(base + CtxControlSet, Ctx_run | ITCtx_cycleMatchEn | (match << ITCtx_cycleMatchShift));
+    if (itCycleMatch) fw->wr(base + CtxControlSet, Ctx_run | ITCtx_cycleMatchEn | (match << ITCtx_cycleMatchShift));
+    else              fw->wr(base + CtxControlSet, Ctx_run);
 }
 
 void AmdtpEngine::startIT(uint64_t firstIRAbs)
@@ -233,9 +234,51 @@ void AmdtpEngine::stop()
     itStarted = false; gotFirst = false;
 }
 
+// Diagnose a dead IT context once: where it stopped and what the descriptors say.
+void AmdtpEngine::checkITDead()
+{
+    if (!itStarted || itDeadLogged) return;
+    for (int o = 0; o < cfg.nOut; o++) {
+        uint32_t base = ITContextBase + ITContextStride * uint32_t(cfg.out[o].ctx);
+        uint32_t ctl = fw->rd(base + CtxControlSet);
+        if (!(ctl & Ctx_dead)) continue;
+        itDeadLogged = true;
+        uint32_t cmd = fw->rd(base + CtxCommandPtr);
+        uint32_t d0 = it[o].desc.iova(0);
+        int slot = int(((cmd & ~0xFu) - d0) / kITBlock);
+        uint32_t ct = fw->cycleTimer();
+        uint32_t sent = 0;
+        for (uint32_t i = 0; i < kSlots; i++) {
+            auto *d2 = reinterpret_cast<volatile Descriptor *>(it[o].desc.cpu + i * kITBlock + 32);
+            if (d2->transferStatus) sent++;
+        }
+        LOG("IT%d DEAD: ctl 0x%08x cmdPtr 0x%08x (Z %u, slot %d of desc base 0x%08x), %u slots with status, cycle timer %u.%u, start abs %llu",
+            o, ctl, cmd, cmd & 0xF, slot, d0, sent, (ct >> 25), (ct >> 12) & 0x1FFF, itStartAbs);
+        for (int k = slot - 2; k <= slot + 1; k++) {
+            if (k < 0 || k >= int(kSlots)) continue;
+            auto *b0 = reinterpret_cast<volatile uint32_t *>(it[o].desc.cpu + uint32_t(k) * kITBlock);
+            LOG("  slot %d: d0 %08x %08x %08x %08x | imm %08x %08x | d2 %08x %08x %08x %08x",
+                k, b0[0], b0[1], b0[2], b0[3], b0[4], b0[5], b0[8], b0[9], b0[10], b0[11]);
+        }
+    }
+}
+
 void AmdtpEngine::pump()
 {
     if (!active || cfg.nIn == 0) return;
+    checkITDead();
+    if (restartITRequested && itStarted) {
+        restartITRequested = false;
+        itDeadLogged = false;
+        uint32_t ct = fw->cycleTimer();
+        uint32_t c64 = ((ct >> 25) % 8) * 8000 + ((ct >> 12) & 0x1FFF);
+        uint64_t nowAbs = unwrap(((c64 / 8000) << 13) | (c64 % 8000), lastAbs);
+        itStartAbs = nowAbs + 16;
+        itNextAbs = itStartAbs;
+        delay = uint32_t(itStartAbs - lastAbs);
+        for (int o = 0; o < cfg.nOut; o++) { dbc[o] = 0; programIT(o); }
+        LOG("IT restarted at cycle %llu (delay %u)", itStartAbs, delay);
+    }
 
     // Host time <-> cycle reference.
     uint64_t h0 = clock.now();
