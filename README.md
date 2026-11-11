@@ -165,3 +165,15 @@ Linux `sound/firewire/dice/*` and FFADO `src/dice/` (including `src/dice/maudio/
 ```bash
 open /Applications/ProFireLoader.app --args --deactivate
 ```
+
+## License and notices
+
+**License:** MIT, see [LICENSE](LICENSE). This covers the driver, ProFire Control and the tools in this repository.
+
+**No warranty, use at your own risk.** The driver runs only with System Integrity Protection disabled and system extension developer mode on, which lowers the Mac's security. ProFire Control writes to the device: its router, mixer and clock settings, and its flash memory when you choose to store settings there.
+
+**Trademarks:** M-Audio and ProFire are trademarks of inMusic Brands. TCAT and DICE are trademarks of their owner (TC Applied Technologies, now part of Music Tribe). Dante and Dante Via are trademarks of Audinate. Apple, macOS, Core Audio, DriverKit and Thunderbolt are trademarks of Apple Inc. They are named here only to describe compatibility. This project is not affiliated with, endorsed by or supported by any of these companies.
+
+**Third-party material:**
+- No M-Audio software or firmware is included or distributed. The original 2.4.4 driver package in `reference/` is gitignored and remains M-Audio's copyright. The driver uses the firmware already installed on the ProFire.
+- Hardware details come from public documentation and other open-source drivers, used as references only, with no code copied: the IEEE 1394 OHCI 1.1 specification, IEC 61883-6 (AM824), Linux ALSA `sound/firewire/dice` and `drivers/firewire/ohci` (GPL-2.0), and FFADO `src/dice` (GPL-2.0). Thanks to their authors; this driver would not exist without their work.
