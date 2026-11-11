@@ -417,7 +417,7 @@ struct ContentView: View {
             }
         }
         .background(Color(white: 0.085))
-        .frame(minWidth: 1290, minHeight: 760)
+        .frame(minWidth: 900, minHeight: 600)
         .preferredColorScheme(.dark)
     }
 }

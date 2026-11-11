@@ -110,6 +110,7 @@ final class ProFireModel: ObservableObject {
     @Published var mixer: MixerSettings { didSet { if mixer != oldValue { persist(); scheduleMixerPush() } } }
     @Published var router: RouterSettings { didSet { if router != oldValue { persist(); scheduleRouterPush() } } }
     @Published var auxRows = 2 { didSet { UserDefaults.standard.set(auxRows, forKey: "auxRows") } }
+    @Published var monoStrips = false { didSet { UserDefaults.standard.set(monoStrips, forKey: "monoStrips") } }
 
     // peak hold: seconds (0 = off, -1 = until reset); clip LEDs latch until reset
     @Published var peakHold: Double = 3 { didSet { UserDefaults.standard.set(peakHold, forKey: "peakHold"); meters.peakHold = peakHold } }
@@ -135,6 +136,14 @@ final class ProFireModel: ObservableObject {
         else { mixer = .factory }
         if let data = d.data(forKey: "router2"), let r = try? JSONDecoder().decode(RouterSettings.self, from: data) { router = r }
         else { router = .factory }
+        monoStrips = d.bool(forKey: "monoStrips")
+        // Linked pairs used to be hard-panned regardless of their pan knobs; their stored pans
+        // may be anything (the knobs were disabled). Start them at L100/R100.
+        if !d.bool(forKey: "linkedPanV1") {
+            d.set(true, forKey: "linkedPanV1")
+            for p in 0..<mixer.link.count where mixer.link[p] { mixer.channels[2 * p].pan = -1; mixer.channels[2 * p + 1].pan = 1 }
+            persist()
+        }
         if d.object(forKey: "auxRows") != nil { auxRows = max(1, min(7, d.integer(forKey: "auxRows"))) }
         if d.object(forKey: "peakHold") != nil { peakHold = d.double(forKey: "peakHold") }
         meters.peakHold = peakHold
@@ -275,8 +284,17 @@ final class ProFireModel: ObservableObject {
         return m.map { row in row.map { UInt32(min(0xFFFF, max(0, ($0 * 16384).rounded()))) } }
     }
 
-    private func linkedPan(_ i: Int) -> Double {
-        mixer.link[i / 2] ? (i % 2 == 0 ? -1 : 1) : mixer.channels[i].pan
+    /// Pan is the channel's own setting, linked or not (a linked pair defaults to L100/R100).
+    private func linkedPan(_ i: Int) -> Double { mixer.channels[i].pan }
+
+    /// Pan default: center for a mono (unlinked) channel, hard left/right for a linked pair.
+    func defaultPan(_ i: Int) -> Double { mixer.link[i / 2] ? (i % 2 == 0 ? -1 : 1) : 0 }
+
+    func setLink(_ pair: Int, _ on: Bool) {
+        var mx = mixer
+        mx.link[pair] = on
+        if on { mx.channels[pair * 2].pan = -1; mx.channels[pair * 2 + 1].pan = 1 }
+        mixer = mx
     }
 
     private func scheduleMixerPush() {

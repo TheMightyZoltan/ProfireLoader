@@ -102,6 +102,31 @@ struct DBScale: View {
 
 // MARK: - controls
 
+/// Catches right-clicks (and Control-clicks) only; every other event falls through to the
+/// SwiftUI control underneath. The action gets the modifier flags (Option = alternate reset).
+struct RightClickArea: NSViewRepresentable {
+    var action: (NSEvent.ModifierFlags) -> Void
+    func makeNSView(context: Context) -> Catcher { let v = Catcher(); v.action = action; return v }
+    func updateNSView(_ v: Catcher, context: Context) { v.action = action }
+    final class Catcher: NSView {
+        var action: ((NSEvent.ModifierFlags) -> Void)?
+        override func hitTest(_ p: NSPoint) -> NSView? {
+            guard let e = NSApp.currentEvent else { return nil }
+            let right = e.type == .rightMouseDown || e.type == .rightMouseUp
+                || (e.type == .leftMouseDown && e.modifierFlags.contains(.control))
+            return right ? super.hitTest(p) : nil
+        }
+        override func rightMouseDown(with e: NSEvent) { action?(e.modifierFlags) }
+        override func mouseDown(with e: NSEvent) { action?(e.modifierFlags) }   // Control-click
+    }
+}
+
+extension View {
+    func onRightClick(_ action: @escaping (NSEvent.ModifierFlags) -> Void) -> some View {
+        overlay(RightClickArea(action: action))
+    }
+}
+
 private struct KnobArc: Shape {
     var from: Double, to: Double
     func path(in rect: CGRect) -> Path {
@@ -128,6 +153,7 @@ struct Knob: View {
     var enabled = true
     var dimmed = false
     var resetValue: Double
+    var optionResetValue: Double? = nil      // Option + right-click
     var text: String
     var help: String
     var axID: String
@@ -159,6 +185,10 @@ struct Knob: View {
             value = max(0, min(1, start! - Double(g.translation.height) / (fine ? 600 : 140)))
         }.onEnded { _ in start = nil })
         .simultaneousGesture(TapGesture(count: 2).onEnded { if enabled { value = resetValue } })
+        .onRightClick { flags in
+            guard enabled else { return }
+            value = flags.contains(.option) ? (optionResetValue ?? resetValue) : resetValue
+        }
         .help(help)
         .accessibilityElement()
         .accessibilityLabel(help)
@@ -208,11 +238,12 @@ struct ConsoleFader: View {
             }.onEnded { _ in startPos = nil })
             .simultaneousGesture(TapGesture(count: 2).onEnded { db = 0 })
         }
+        .onRightClick { _ in db = 0 }
         .accessibilityElement()
         .accessibilityLabel("Fader")
         .accessibilityValue(dbText(db))
         .accessibilityIdentifier(axID)
-        .help("Drag (Option = fine), double-click for 0 dB")
+        .help("Drag (Option = fine); double-click or right-click for 0 dB")
     }
 }
 
@@ -286,19 +317,32 @@ struct MixerView: View {
     static let rowGap: CGFloat = 7
     static let faderMarks: [Double] = [12, 6, 0, -6, -12, -20, -30, -40, -60]
 
+    @State private var fit = FitState()
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             ScrollView([.vertical, .horizontal]) {
                 HStack(alignment: .top, spacing: Self.colGap) {
                     labelColumn
-                    ForEach(0..<(MixerSettings.channelCount / 2), id: \.self) { pairColumn($0) }
+                    ForEach(0..<(MixerSettings.channelCount / 2), id: \.self) { pair in
+                        if m.monoStrips && !m.mixer.link[pair] { monoPair(pair) } else { pairColumn(pair) }
+                    }
                     masterColumn
                 }
                 .padding(12)
+                .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                    fit.content = size
+                    DispatchQueue.main.async { [fit] in fit.fitWindow() }
+                }
+            }
+            .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                fit.viewport = size
+                DispatchQueue.main.async { [fit] in fit.fitWindow() }
             }
             .background(Theme.panel)
         }
+        .onAppear { fit.fitted = .zero }
     }
 
     // MARK: toolbar
@@ -311,6 +355,9 @@ struct MixerView: View {
                 Text("\(m.auxRows)").monospacedDigit().frame(width: 14)
                 PadButton(title: "+", on: false, color: .gray, width: 22, help: "Add an aux row", axID: "auxrows.plus") { m.auxRows = min(7, m.auxRows + 1) }
             }
+            Toggle("Unlinked as mono", isOn: $m.monoStrips).toggleStyle(.checkbox)
+                .help("Show channels that aren't linked as separate mono strips")
+                .accessibilityIdentifier("monostrips")
             Divider().frame(height: 16)
             Text("Peak hold").foregroundStyle(.secondary)
             Picker("", selection: $m.peakHold) {
@@ -367,10 +414,7 @@ struct MixerView: View {
             cells(height: Self.knobH, l: panKnob(l, linked), r: panKnob(r, linked))
             HStack(spacing: 0) {
                 msCell(l, linked).frame(width: Self.stripW)
-                PadButton(title: "", symbol: "link", on: linked, color: Theme.link, width: 13,
-                          help: linked ? "Unlink channels \(l + 1) and \(r + 1)" : "Link channels \(l + 1) and \(r + 1) as a stereo pair",
-                          axID: "link.\(pair + 1)") { m.mixer.link[pair].toggle() }
-                    .frame(width: Self.linkW)
+                linkButton(pair).frame(width: Self.linkW)
                 msCell(r, linked).frame(width: Self.stripW)
             }
             .frame(height: Self.msH)
@@ -384,6 +428,44 @@ struct MixerView: View {
         .overlay(alignment: .top) {
             // stereo-link bracket over the meters
             Capsule().fill(Theme.link.opacity(linked ? 0.8 : 0)).frame(width: 2 * Self.stripW + Self.linkW - 20, height: 2).offset(y: 3)
+        }
+    }
+
+    private func linkButton(_ pair: Int) -> some View {
+        let linked = m.mixer.link[pair], l = pair * 2, r = pair * 2 + 1
+        return PadButton(title: "", symbol: "link", on: linked, color: Theme.link, width: 13,
+                         help: linked ? "Unlink channels \(l + 1) and \(r + 1)" : "Link channels \(l + 1) and \(r + 1) as a stereo pair",
+                         axID: "link.\(pair + 1)") { m.setLink(pair, !linked) }
+    }
+
+    /// An unlinked pair drawn as two separate mono strips, with the link button between them.
+    private func monoPair(_ pair: Int) -> some View {
+        let toMS = 8 + Self.meterH + Self.rowGap + CGFloat(m.auxRows + 1) * (Self.knobH + Self.rowGap)
+        return HStack(alignment: .top, spacing: 0) {
+            monoColumn(pair * 2)
+            VStack(spacing: 0) {
+                Color.clear.frame(height: toMS)
+                linkButton(pair).frame(height: Self.msH)
+            }
+            .frame(width: Self.linkW + 2)
+            monoColumn(pair * 2 + 1)
+        }
+    }
+
+    private func monoColumn(_ i: Int) -> some View {
+        VStack(spacing: Self.rowGap) {
+            meterCell(i).frame(width: Self.stripW, height: Self.meterH)
+            ForEach(0..<m.auxRows, id: \.self) { k in auxKnob(i, k, false).frame(width: Self.stripW, height: Self.knobH) }
+            panKnob(i, false).frame(width: Self.stripW, height: Self.knobH)
+            msCell(i, false).frame(width: Self.stripW, height: Self.msH)
+            ConsoleFader(db: levelBinding(i, false), axID: "fader.\(i + 1)").frame(width: Self.stripW, height: Self.faderH)
+            valueText(i).frame(width: Self.stripW, height: Self.valH)
+            SourceButton(index: i).frame(width: Self.stripW, height: Self.srcH)
+        }
+        .padding(.vertical, 8).padding(.horizontal, 2)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.strip))
+        .overlay(alignment: .top) {
+            Text("MONO").font(.system(size: 7, weight: .heavy)).tracking(0.5).foregroundStyle(Theme.dim).offset(y: -1)
         }
     }
 
@@ -422,17 +504,19 @@ struct MixerView: View {
             m.mixer.channels[i].aux[k] = db
             if linked { m.mixer.channels[i ^ 1].aux[k] = db }
         })
-        return Knob(value: b, color: Theme.aux, dimmed: m.mixer.auxMuted(k), resetValue: 0,
-                    text: dbText(m.mixer.channels[i].aux[k]), help: "Channel \(i + 1) send to aux \(k + 1) (pre-fader); double-click = off",
+        return Knob(value: b, color: Theme.aux, dimmed: m.mixer.auxMuted(k), resetValue: 0, optionResetValue: FaderCurve.pos(0),
+                    text: dbText(m.mixer.channels[i].aux[k]),
+                    help: "Channel \(i + 1) send to aux \(k + 1) (pre-fader). Right-click: off, Option+right-click: 0 dB",
                     axID: "aux\(k + 1).\(i + 1)")
     }
 
     private func panKnob(_ i: Int, _ linked: Bool) -> some View {
-        let pan = linked ? (i % 2 == 0 ? -1.0 : 1.0) : m.mixer.channels[i].pan
+        let pan = m.mixer.channels[i].pan
         let b = Binding<Double>(get: { (pan + 1) / 2 }, set: { m.mixer.channels[i].pan = $0 * 2 - 1 })
         let txt = abs(pan) < 0.01 ? "C" : (pan < 0 ? "L" : "R") + "\(Int((abs(pan) * 100).rounded()))"
-        return Knob(value: b, color: Theme.pan, bipolar: true, enabled: !linked, resetValue: 0.5, text: txt,
-                    help: linked ? "Linked pair: hard left/right (unlink to pan)" : "Channel \(i + 1) pan; double-click = center",
+        let def = (m.defaultPan(i) + 1) / 2
+        return Knob(value: b, color: Theme.pan, bipolar: true, resetValue: def, text: txt,
+                    help: "Channel \(i + 1) pan. Right-click: \(linked ? (i % 2 == 0 ? "L100" : "R100") : "center")",
                     axID: "pan.\(i + 1)")
     }
 
@@ -630,4 +714,41 @@ struct MetersView: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(Theme.strip))
         }
     }
+}
+
+private struct MixerContentSizeKey: PreferenceKey {
+    static var defaultValue = CGSize.zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+}
+private struct MixerViewportSizeKey: PreferenceKey {
+    static var defaultValue = CGSize.zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+}
+
+/// Window auto-fit state for the mixer (a reference, so deferred callbacks see current sizes).
+@MainActor
+final class FitState {
+    var content = CGSize.zero, viewport = CGSize.zero
+    var fitted = CGSize.zero        // content size the window was last fitted to
+
+    /// Resize the window by exactly the difference between the mixer's content and its viewport,
+    /// keeping the top-left corner in place and staying on screen. Only runs when the mixer's own
+    /// layout changes (start, aux rows, mono strips), so a manual resize is left alone otherwise.
+    func fitWindow() {
+        // Fit once per mixer layout; a later manual resize (viewport change only) is left alone.
+        guard content.width > 0, viewport.width > 0, content != fitted,
+              let win = NSApp.windows.first(where: { $0.isVisible && $0.title == "ProFire Control" }) else { return }
+        fitted = content
+        let dw = content.width - viewport.width, dh = content.height - viewport.height
+        guard abs(dw) > 1 || abs(dh) > 1 else { return }
+        var f = win.frame
+        let vis = (win.screen ?? NSScreen.main)?.visibleFrame ?? f
+        let w = min(vis.width, f.width + dw), h = min(vis.height, f.height + dh)
+        f.origin.y += f.height - h
+        f.size = CGSize(width: w, height: h)
+        if f.minY < vis.minY { f.origin.y = vis.minY }
+        if f.maxX > vis.maxX { f.origin.x = max(vis.minX, vis.maxX - w) }
+        win.setFrame(f, display: true, animate: false)
+    }
+
 }

@@ -17,7 +17,10 @@ guard AXIsProcessTrusted() else { print("NOT TRUSTED for accessibility"); exit(2
 guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "local.profire.Loader").first else { print("app not running"); exit(1) }
 let axApp = AXUIElementCreateApplication(app.processIdentifier)
 
-func window() -> AXUIElement? { (attr(axApp, kAXWindowsAttribute) as? [AXUIElement])?.first }
+func window() -> AXUIElement? {
+    let ws = (attr(axApp, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+    return ws.first { (attr($0, kAXTitleAttribute) as? String) == "ProFire Control" } ?? ws.first
+}
 
 func collect() -> [El] {
     guard let w = window() else { return [] }
@@ -76,6 +79,10 @@ if args.count > 2 && args[1] == "shot" {   // capture only this app's window
     }
     exit(0)
 }
+if args.count > 1 && args[1] == "winsize" {
+    if let w = window(), let f = frame(w) { print("window \(Int(f.width))x\(Int(f.height)) at \(Int(f.minX)),\(Int(f.minY))") }
+    exit(0)
+}
 if args.count > 1 && args[1] == "dump" {
     for e in collect() { print(e.key, Int(e.frame.minX), Int(e.frame.minY), Int(e.frame.width), Int(e.frame.height)) }
     exit(0)
@@ -113,6 +120,13 @@ for (label, key, kind) in steps {
         let u = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)!; u.setIntegerValueField(.mouseEventClickState, value: 2); u.post(tap: .cghidEventTap)
         usleep(400_000)
     case "menu": click(p); usleep(300_000); escape()
+    case "rclick", "orclick":
+        let flags: CGEventFlags = kind == "orclick" ? .maskAlternate : []
+        for t in [CGEventType.rightMouseDown, .rightMouseUp] {
+            let ev = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .right)!
+            ev.flags = flags; ev.post(tap: .cghidEventTap); usleep(40_000)
+        }
+        usleep(350_000)
     default: click(p)
     }
     let after = collect()
