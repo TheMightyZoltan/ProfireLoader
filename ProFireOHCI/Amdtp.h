@@ -41,6 +41,7 @@ public:
     // Self-test: sine on one output channel (0-based, -1 = off), input level logging.
     int  toneChannel = -1;
     bool levelLog = false;
+    volatile bool outputSilent = false;   // keep-streaming mode with no app playing: send silence
     bool itCycleMatch = false;       // start IT with cycleMatch (off: start now, measure the start cycle)
     bool restartITRequested = false;
     int  rawDumps = 0;               // log raw contents of the next N data packets (stream 0)

@@ -334,6 +334,7 @@ struct AdvancedView: View {
 // MARK: - driver
 
 struct DriverView: View {
+    @EnvironmentObject var devices: DeviceManager
     @EnvironmentObject var ext: ExtensionManager
     @EnvironmentObject var m: ProFireModel
     @State private var v = DriverVersions()
@@ -364,6 +365,12 @@ struct DriverView: View {
                         .font(.callout).foregroundStyle(.orange)
                 }
                 Button("Refresh") { v = DriverVersions.load() }
+            }
+            Section("Streaming") {
+                Toggle("Keep the stream running when no app plays", isOn: $devices.keepStreaming)
+                    .accessibilityIdentifier("keepstreaming")
+                Text("On: every ProFire streams as soon as it's found, sending silence while idle. Apps join the running stream without a start-up glitch, and the power LED stays steady. Off: streaming stops when the last app stops (the power LED blinks while idle).")
+                    .font(.callout).foregroundStyle(.secondary)
             }
             Section("ProFire driver") {
                 LabeledContent("Connection") { Text(m.connected ? "Connected" : m.statusText) }

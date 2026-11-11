@@ -138,7 +138,7 @@ void AmdtpEngine::writeIT(int o, uint64_t absCycle, uint32_t blocks, uint16_t sy
     const double w = 2.0 * M_PI * 1000.0 / double(cfg.rate);
     for (uint32_t b = 0; b < blocks; b++) {
         uint64_t frame = firstFrame + b;
-        const float *src = outRing ? outRing + (frame % ringFrames) * outChannels + chanOff : nullptr;
+        const float *src = (outRing && !outputSilent) ? outRing + (frame % ringFrames) * outChannels + chanOff : nullptr;
         volatile uint32_t *dst = q + 2 + b * dbs;
         for (uint32_t k = 0; k < sc.pcm; k++) {
             float x = src ? src[k] : 0.0f;

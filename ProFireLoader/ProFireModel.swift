@@ -206,6 +206,11 @@ final class ProFireModel: ObservableObject {
         }
     }
 
+    /// Keep the FireWire stream running while no app plays (steady power LED, no start-up glitch).
+    func setKeepStreaming(_ on: Bool) {
+        io.async { [weak self] in self?.link.command("P", on ? 1 : 0) }
+    }
+
     /// Stop polling and close the driver connection (the controller went away).
     func shutdown() { pollTimer?.invalidate(); pollTimer = nil; link.close() }
 
@@ -311,6 +316,8 @@ final class ProFireModel: ObservableObject {
                 let guid = String(format: "%08x%08x", rom[3], rom[4])
                 DispatchQueue.main.async {
                     self.guid = guid
+                    let keep = UserDefaults.standard.object(forKey: "keepStreaming") as? Bool ?? true
+                    if info.keepStreaming != keep { self.setKeepStreaming(keep) }
                     self.controllerGUID = String(format: "%016llx", info.controllerGUID)
                     self.loadSettings(for: self.key)
                     self.map = map

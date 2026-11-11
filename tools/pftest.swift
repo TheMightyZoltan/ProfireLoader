@@ -19,6 +19,10 @@ func findDevice(_ name: String) -> AudioDeviceID? {
     AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &ids)
     for id in ids {
         var n: Unmanaged<CFString>?
+        var u: Unmanaged<CFString>?
+        let uid = prop(id, kAudioDevicePropertyDeviceUID, kAudioObjectPropertyScopeGlobal, &u) == noErr ? (u?.takeRetainedValue() as String? ?? "") : ""
+        // PFTEST_UID=<part of the device UID> picks one of several ProFires (e.g. the controller GUID's end).
+        if let want = ProcessInfo.processInfo.environment["PFTEST_UID"], !uid.lowercased().contains(want.lowercased()) { continue }
         if prop(id, kAudioObjectPropertyName, kAudioObjectPropertyScopeGlobal, &n) == noErr,
            let s = n?.takeRetainedValue() as String?, s.contains(name) { return id }
     }

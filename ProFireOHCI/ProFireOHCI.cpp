@@ -55,6 +55,11 @@ struct ProFireOHCI_IVars {
 
     bool streaming = false;
     bool restartPending = false;
+    // Keep-streaming mode: the stream runs whenever a ProFire is found (silence while no app
+    // plays), so apps join a running stream: no start-up transient, steady power LED.
+    bool keepStreaming = true;
+    bool ioActive = false;              // Core Audio IO running (some app is using the device)
+    uint64_t keepRetryNs = 0;
     uint32_t delayCycles = 48;
     bool routerLoaded = false;
     bool noOut = false;
@@ -335,6 +340,7 @@ static kern_return_t startStreamingInternal(ProFireOHCI_IVars *iv)
     e.zts = iv->device ? ztsThunk : nullptr;
     e.ztsCtx = iv->device.get();
 
+    e.outputSilent = !iv->ioActive;
     __block kern_return_t ret = kIOReturnSuccess;
     iv->ioQueue->DispatchSync(^{ ret = iv->engine.start(&iv->fw, cfg); });
     if (ret != kIOReturnSuccess) { LOG("engine start failed 0x%x", ret); d.releaseOwnership(); return ret; }
@@ -350,13 +356,31 @@ static kern_return_t startStreamingInternal(ProFireOHCI_IVars *iv)
 
 kern_return_t ProFireOHCI::StartStreaming()
 {
-    ivars->restartPending = false;
-    return startStreamingInternal(ivars);
+    auto *iv = ivars;
+    iv->restartPending = false;
+    iv->ioActive = true;
+    if (iv->streaming) {
+        // Already running (keep-streaming): start from a clean output ring, then play the app.
+        if (iv->outRing) bzero(iv->outRing, kRingFrames * iv->outCh * 4);
+        iv->engine.outputSilent = false;
+        LOG("app joined the running stream");
+        return kIOReturnSuccess;
+    }
+    kern_return_t r = startStreamingInternal(iv);
+    if (r != kIOReturnSuccess) iv->ioActive = false;
+    return r;
 }
 
 kern_return_t ProFireOHCI::StopStreaming()
 {
-    stopStreamingInternal(ivars);
+    auto *iv = ivars;
+    iv->ioActive = false;
+    if (iv->keepStreaming && iv->streaming) {
+        iv->engine.outputSilent = true;
+        LOG("last app stopped: stream keeps running (silence)");
+        return kIOReturnSuccess;
+    }
+    stopStreamingInternal(iv);
     return kIOReturnSuccess;
 }
 
@@ -401,6 +425,11 @@ void IMPL(ProFireOHCI, HousekeepingFired)
         if (!wasThere || !iv->diceFound) iv->routerLoaded = false;
         if (was && iv->diceFound) startStreamingInternal(iv);
     }
+    // Keep-streaming: start (and after a failure, retry every 5 s) once the ProFire is there.
+    if (iv->keepStreaming && iv->diceFound && iv->device && !iv->streaming && nowNs() >= iv->keepRetryNs) {
+        LOG("keep-streaming: starting stream");
+        if (startStreamingInternal(iv) != kIOReturnSuccess) iv->keepRetryNs = nowNs() + 5000000000ull;
+    }
     uint64_t delta = uint64_t(kHousekeepingMs) * 1000000;
     if (iv->hkTimer) iv->hkTimer->WakeAtTime(kIOTimerClockUptimeRaw, nowNs() + delta, delta / 4);
 }
@@ -434,7 +463,7 @@ void ProFireOHCI::ControlInfo(uint64_t *info, uint32_t count)
 {
     auto *iv = ivars;
     uint64_t v[8] = { iv->diceFound ? 1u : 0u, iv->dice.node, uint64_t(iv->rate), iv->streaming ? 1u : 0u,
-                      0, iv->dice.numTx, iv->dice.numRx,
+                      0, iv->keepStreaming ? 1u : 0u, iv->ioActive ? 1u : 0u,                 // [5] keep, [6] app IO
                       uint64_t(iv->fw.rd(ohci::GUIDHi)) << 32 | iv->fw.rd(ohci::GUIDLo) };   // [7] controller GUID
     if (iv->diceFound) v[4] = iv->dice.locked() ? 1 : 0;
     for (uint32_t i = 0; i < count && i < 8; i++) info[i] = v[i];
@@ -511,6 +540,7 @@ kern_return_t IMPL(ProFireOHCI, NewUserClient)
         case 'Y': word = "delay"; break;
         case 'O': word = "tone"; break;
         case 'A': word = "rate"; arg *= 10; break;
+        case 'P': word = "keep"; break;
         case 'I': word = "itrestart"; break;
         case 'Q': word = "itdiag"; break;
         case 'F': word = "forceroot"; break;
@@ -528,7 +558,7 @@ kern_return_t IMPL(ProFireOHCI, NewUserClient)
         default: return kIOReturnBadArgument;
     }
     for (const char *p = word; *p; p++) buf[n++] = *p;
-    if (c == 'Y' || c == 'O' || c == 'A' || c == 'M' || c == 'B' || c == 'X' || c == 'Z') {
+    if (c == 'P' || c == 'Y' || c == 'O' || c == 'A' || c == 'M' || c == 'B' || c == 'X' || c == 'Z') {
         buf[n++] = ' ';
         char tmp[12]; uint32_t k = 0, v = arg;
         do { tmp[k++] = char('0' + v % 10); v /= 10; } while (v);
@@ -609,6 +639,12 @@ static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, con
         else if (hasNum && is("noout")) { iv->noOut = n != 0; LOG("noout %u (applies on next start)", n); }
         else if (hasNum && is("itcm")) { iv->engine.itCycleMatch = n != 0; LOG("IT cycle match %{public}s", n ? "on" : "off"); }
         else if (hasNum && is("rate")) { self->ChangeRate(double(n)); }
+        else if (hasNum && is("keep")) {
+            iv->keepStreaming = n != 0;
+            LOG("keep-streaming %{public}s", iv->keepStreaming ? "on" : "off");
+            if (!iv->keepStreaming && iv->streaming && !iv->ioActive) stopStreamingInternal(iv);
+            iv->keepRetryNs = 0;
+        }
         else return kIOReturnUnsupported;
     }
     return kIOReturnSuccess;

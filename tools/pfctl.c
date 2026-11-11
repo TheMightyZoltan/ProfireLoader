@@ -35,6 +35,7 @@ int main(int argc, char **argv)
     else if (!strcmp(w, "peekb")) c = 'B';     // DICE base space, arg = quadlet index
     else if (!strcmp(w, "peekx")) c = 'X';     // EAP space, arg = quadlet index
     else if (!strcmp(w, "itcm")) c = 'M';
+    else if (!strcmp(w, "keep")) c = 'P';     // keep-streaming 0/1
     else { fprintf(stderr, "unknown command %s\n", w); return 2; }
     // Every driver instance (one per FireWire controller) gets the command.
     io_iterator_t it = 0;

@@ -14,6 +14,9 @@ final class DeviceManager: ObservableObject {
     @Published var hidden: Set<String> { didSet { UserDefaults.standard.set(Array(hidden), forKey: "hiddenInMixer") } }
     @Published var auxRows: Int { didSet { UserDefaults.standard.set(auxRows, forKey: "auxRows"); for m in models { m.auxRows = auxRows } } }
     @Published var peakHold: Double { didSet { for m in models { m.peakHold = peakHold } } }
+    @Published var keepStreaming: Bool {
+        didSet { UserDefaults.standard.set(keepStreaming, forKey: "keepStreaming"); for m in devices { m.setKeepStreaming(keepStreaming) } }
+    }
 
     private var subs = [UInt64: AnyCancellable]()
     private var timer: Timer?
@@ -24,6 +27,7 @@ final class DeviceManager: ObservableObject {
         hidden = Set(d.stringArray(forKey: "hiddenInMixer") ?? [])
         auxRows = d.object(forKey: "auxRows") != nil ? max(1, min(7, d.integer(forKey: "auxRows"))) : 2
         peakHold = d.object(forKey: "peakHold") != nil ? d.double(forKey: "peakHold") : 3
+        keepStreaming = d.object(forKey: "keepStreaming") as? Bool ?? true
         scan()
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.scan() } }
     }

@@ -20,6 +20,7 @@ enum LinkError: Error, CustomStringConvertible {
 struct DriverInfo {
     var found = false, node: UInt64 = 0, rate: Int = 0, streaming = false, locked = false
     var controllerGUID: UInt64 = 0        // the FireWire controller this driver instance runs on
+    var keepStreaming = false, appIO = false
 }
 
 /// Raw DICE access. All calls are synchronous; use from a background queue.
@@ -62,13 +63,25 @@ final class DeviceLink {
         if conn != 0 { IOServiceClose(conn); conn = 0 }
     }
 
+    /// Driver command (same channel as pfctl): IOServiceOpen with type 0xFE000000 | cmd << 16 | arg.
+    func command(_ c: Character, _ arg: UInt16) {
+        let svc: io_service_t
+        if let serviceID, serviceID != 0, let m = IORegistryEntryIDMatching(serviceID) { svc = IOServiceGetMatchingService(kIOMainPortDefault, m) }
+        else { svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI")) }
+        guard svc != 0, let a = c.asciiValue else { return }
+        defer { IOObjectRelease(svc) }
+        var conn: io_connect_t = 0
+        _ = IOServiceOpen(svc, mach_task_self_, 0xFE00_0000 | UInt32(a) << 16 | UInt32(arg), &conn)
+        if conn != 0 { IOServiceClose(conn) }
+    }
+
     func info() throws -> DriverInfo {
         try open()
         var out = [UInt64](repeating: 0, count: 8); var n: UInt32 = 8
         let kr = IOConnectCallScalarMethod(conn, 0, nil, 0, &out, &n)
         guard kr == KERN_SUCCESS else { close(); throw LinkError.call(kr) }
         return DriverInfo(found: out[0] != 0, node: out[1], rate: Int(out[2]), streaming: out[3] != 0, locked: out[4] != 0,
-                          controllerGUID: out[7])
+                          controllerGUID: out[7], keepStreaming: out[5] != 0, appIO: out[6] != 0)
     }
 
     func read(_ lo: UInt32, quads: Int) throws -> [UInt32] {

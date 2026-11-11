@@ -62,6 +62,7 @@ struct ProFireLoaderApp: App {
                 .environmentObject(devices)
                 .environmentObject(manager)
                 .onAppear {
+                    FieldFocusReleaser.install()
                     // `open ProFireLoader.app --args --activate` / `--deactivate` for scripted installs.
                     let args = CommandLine.arguments
                     if args.contains("--activate") { manager.activate() }
@@ -99,5 +100,27 @@ struct RootView: View {
     var body: some View {
         let cur = devices.current
         ContentView().environmentObject(cur).environmentObject(cur.meters)
+    }
+}
+
+/// Text fields give up the cursor after Return or a click anywhere else, which applies the value.
+/// (SwiftUI on macOS otherwise keeps the field editing until another text field is clicked.)
+enum FieldFocusReleaser {
+    private static var monitor: Any?
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { e in
+            guard let win = e.window, let editor = win.firstResponder as? NSTextView, editor.isFieldEditor else { return e }
+            switch e.type {
+            case .keyDown where e.keyCode == 36 || e.keyCode == 76:        // Return / Enter
+                DispatchQueue.main.async { if win.firstResponder === editor { win.makeFirstResponder(nil) } }
+            case .leftMouseDown, .rightMouseDown:
+                let hit = win.contentView?.superview?.hitTest(e.locationInWindow) ?? win.contentView?.hitTest(e.locationInWindow)
+                let inField = hit === editor || hit is NSTextField || hit?.isDescendant(of: editor) == true
+                if !inField { win.makeFirstResponder(nil) }
+            default: break
+            }
+            return e
+        }
     }
 }
