@@ -35,7 +35,7 @@ struct SignalMenu: View {
     var body: some View {
         Menu {
             ForEach(Signal.groups, id: \.0) { group in
-                Section(group.0) { ForEach(group.1, id: \.self) { sig in Button(sig.name) { set(sig) } } }
+                Section(group.0) { ForEach(group.1, id: \.self) { sig in Toggle(sig.name, isOn: Binding(get: { current == sig }, set: { if $0 { set(sig) } })) } }
             }
         } label: { Text(current.name).lineLimit(1) }
         .frame(width: 210)
@@ -75,7 +75,7 @@ struct RouterView: View {
                     let cur = m.pairSource(pair)
                     Menu {
                         ForEach(SourcePair.groups, id: \.0) { group in
-                            Section(group.0) { ForEach(group.1) { sp in Button(sp.name) { m.setPair(pair, sp) } } }
+                            Section(group.0) { ForEach(group.1) { sp in Toggle(sp.name, isOn: Binding(get: { cur == sp }, set: { if $0 { m.setPair(pair, sp) } })) } }
                         }
                     } label: { Text(cur?.name ?? "Custom (see channels)") }
                     .frame(width: 220).disabled(ports == nil)

@@ -681,7 +681,7 @@ struct InputMenu: View {
             ForEach(MixerSources.groups, id: \.0) { group in
                 Section(group.0) {
                     ForEach(group.1, id: \.self) { s in
-                        Button(s.name) { m.mixer.channels[index].source = s }
+                        Toggle(s.name, isOn: Binding(get: { src == s }, set: { if $0 { m.mixer.channels[index].source = s } }))
                     }
                 }
             }
