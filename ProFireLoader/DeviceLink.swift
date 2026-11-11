@@ -19,11 +19,27 @@ enum LinkError: Error, CustomStringConvertible {
 
 struct DriverInfo {
     var found = false, node: UInt64 = 0, rate: Int = 0, streaming = false, locked = false
+    var controllerGUID: UInt64 = 0        // the FireWire controller this driver instance runs on
 }
 
 /// Raw DICE access. All calls are synchronous; use from a background queue.
 final class DeviceLink {
     private var conn: io_connect_t = 0
+    /// Registry entry ID of the driver instance (one per FireWire controller); nil = the first one.
+    let serviceID: UInt64?
+
+    init(serviceID: UInt64? = nil) { self.serviceID = serviceID }
+
+    /// Registry IDs of all running driver instances.
+    static func services() -> [UInt64] {
+        var ids = [UInt64]()
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI"), &it) == KERN_SUCCESS else { return ids }
+        defer { IOObjectRelease(it) }
+        var s = IOIteratorNext(it)
+        while s != 0 { var id: UInt64 = 0; IORegistryEntryGetRegistryEntryID(s, &id); ids.append(id); IOObjectRelease(s); s = IOIteratorNext(it) }
+        return ids.sorted()
+    }
 
     deinit { close() }
 
@@ -31,7 +47,9 @@ final class DeviceLink {
 
     func open() throws {
         if conn != 0 { return }
-        let svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI"))
+        let svc: io_service_t
+        if let serviceID, let m = IORegistryEntryIDMatching(serviceID) { svc = IOServiceGetMatchingService(kIOMainPortDefault, m) }
+        else { svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI")) }
         guard svc != 0 else { throw LinkError.noDriver }
         defer { IOObjectRelease(svc) }
         var c: io_connect_t = 0
@@ -49,7 +67,8 @@ final class DeviceLink {
         var out = [UInt64](repeating: 0, count: 8); var n: UInt32 = 8
         let kr = IOConnectCallScalarMethod(conn, 0, nil, 0, &out, &n)
         guard kr == KERN_SUCCESS else { close(); throw LinkError.call(kr) }
-        return DriverInfo(found: out[0] != 0, node: out[1], rate: Int(out[2]), streaming: out[3] != 0, locked: out[4] != 0)
+        return DriverInfo(found: out[0] != 0, node: out[1], rate: Int(out[2]), streaming: out[3] != 0, locked: out[4] != 0,
+                          controllerGUID: out[7])
     }
 
     func read(_ lo: UInt32, quads: Int) throws -> [UInt32] {

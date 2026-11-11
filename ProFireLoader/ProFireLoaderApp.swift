@@ -54,21 +54,23 @@ final class ExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
 @main
 struct ProFireLoaderApp: App {
     @StateObject private var manager = ExtensionManager()
-    @StateObject private var model = ProFireModel()
+    @StateObject private var devices = DeviceManager()
 
     var body: some Scene {
         Window("ProFire Control", id: "main") {
-            ContentView()
-                .environmentObject(model)
-                .environmentObject(model.meters)
+            RootView()
+                .environmentObject(devices)
                 .environmentObject(manager)
                 .onAppear {
                     // `open ProFireLoader.app --args --activate` / `--deactivate` for scripted installs.
                     let args = CommandLine.arguments
                     if args.contains("--activate") { manager.activate() }
                     else if args.contains("--deactivate") { manager.deactivate() }
-                    if args.contains("--selftest") { model.runSelfTest() }
-                    if args.contains("--selftest-spdif") { model.runSPDIFSelfTest() }
+                    if args.contains("--selftest") || args.contains("--selftest-spdif") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            if args.contains("--selftest") { devices.current.runSelfTest() } else { devices.current.runSPDIFSelfTest() }
+                        }
+                    }
                     // Debug: `--snapshot /path.png` renders this app's own window (no screen recording needed).
                     if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
                         let path = args[i + 1]
@@ -89,4 +91,13 @@ func snapshotOwnWindow(to path: String) {
           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
     view.cacheDisplay(in: view.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+}
+
+/// Gives the window the ProFire the single-device tabs edit.
+struct RootView: View {
+    @EnvironmentObject var devices: DeviceManager
+    var body: some View {
+        let cur = devices.current
+        ContentView().environmentObject(cur).environmentObject(cur.meters)
+    }
 }

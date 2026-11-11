@@ -36,14 +36,21 @@ int main(int argc, char **argv)
     else if (!strcmp(w, "peekx")) c = 'X';     // EAP space, arg = quadlet index
     else if (!strcmp(w, "itcm")) c = 'M';
     else { fprintf(stderr, "unknown command %s\n", w); return 2; }
-    io_service_t svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI"));
-    if (!svc) { fprintf(stderr, "ProFireOHCI service not found\n"); return 1; }
-    io_connect_t conn = 0;
-    uint32_t type = 0xFE000000u | ((uint32_t)(unsigned char)c << 16) | (arg & 0xFFFF);
-    kern_return_t kr = IOServiceOpen(svc, mach_task_self(), type, &conn);
-    if (conn) IOServiceClose(conn);
-    IOObjectRelease(svc);
-    // 0xe00002eb (aborted) = handled; restart may also report a dead connection.
-    printf("sent %s %u -> 0x%x%s\n", w, arg, kr, kr == (kern_return_t)0xe00002eb ? " (ok)" : "");
+    // Every driver instance (one per FireWire controller) gets the command.
+    io_iterator_t it = 0;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceNameMatching("ProFireOHCI"), &it) != KERN_SUCCESS) it = 0;
+    int sent = 0;
+    for (io_service_t svc; it && (svc = IOIteratorNext(it)); IOObjectRelease(svc)) {
+        uint64_t id = 0; IORegistryEntryGetRegistryEntryID(svc, &id);
+        io_connect_t conn = 0;
+        uint32_t type = 0xFE000000u | ((uint32_t)(unsigned char)c << 16) | (arg & 0xFFFF);
+        kern_return_t kr = IOServiceOpen(svc, mach_task_self(), type, &conn);
+        if (conn) IOServiceClose(conn);
+        // 0xe00002eb (aborted) = handled; restart may also report a dead connection.
+        printf("sent %s %u to 0x%llx -> 0x%x%s\n", w, arg, id, kr, kr == (kern_return_t)0xe00002eb ? " (ok)" : "");
+        sent++;
+    }
+    if (it) IOObjectRelease(it);
+    if (!sent) { fprintf(stderr, "ProFireOHCI service not found\n"); return 1; }
     return 0;
 }

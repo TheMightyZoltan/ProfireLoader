@@ -16,6 +16,7 @@
 		5D1351EBFCDFFAD40B1CCA41 /* ProFireModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87121B2F124889D699AD8180 /* ProFireModel.swift */; };
 		60B662C5999DDCC460AEBCF4 /* Amdtp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 36DDB49EE8030C912678FB0A /* Amdtp.cpp */; };
 		69C1334EC9BAA51B3AAEB54C /* ProFireOHCI.dext in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 82FA31FF6D7425FE88272C12 /* ProFireOHCI.dext */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		78CC99F0682473E16BA5202C /* DeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20E5035066E744086B8803E /* DeviceManager.swift */; };
 		95F516AC55718A52056DC62D /* DriverVersions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803E71F91FBAD90788E226D7 /* DriverVersions.swift */; };
 		991131E8096977D0B7E3C9D2 /* DeviceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B044DBB74CEACA7D7AEDC89 /* DeviceLink.swift */; };
 		996E969DA2EFCDF7F7BBE39B /* ProFireAudioDevice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 426FE4F15352B498ED1FDDC1 /* ProFireAudioDevice.cpp */; };
@@ -71,6 +72,7 @@
 		91122B444291394992B73FBE /* FWController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FWController.h; sourceTree = "<group>"; };
 		960EB0331A540D1450C46EA3 /* FWController.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FWController.cpp; sourceTree = "<group>"; };
 		9A24FC02CD0A37E3BDF3B5F3 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
+		A20E5035066E744086B8803E /* DeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceManager.swift; sourceTree = "<group>"; };
 		B08BE9842A18061E89DE254C /* Dice.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Dice.cpp; sourceTree = "<group>"; };
 		B4F574AD258D197A659933DB /* ProFireLoaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProFireLoaderApp.swift; sourceTree = "<group>"; };
 		BFF54663BCF16B365550B3C8 /* ProFireUserClient.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = ProFireUserClient.iig; sourceTree = "<group>"; };
@@ -84,6 +86,7 @@
 			isa = PBXGroup;
 			children = (
 				3B044DBB74CEACA7D7AEDC89 /* DeviceLink.swift */,
+				A20E5035066E744086B8803E /* DeviceManager.swift */,
 				803E71F91FBAD90788E226D7 /* DriverVersions.swift */,
 				FD70898E1301FC3BDA999A51 /* MixerPanel.swift */,
 				3063F85E6E1CE530C6429ED7 /* Ports.swift */,
@@ -236,6 +239,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				991131E8096977D0B7E3C9D2 /* DeviceLink.swift in Sources */,
+				78CC99F0682473E16BA5202C /* DeviceManager.swift in Sources */,
 				95F516AC55718A52056DC62D /* DriverVersions.swift in Sources */,
 				E15BE70922ABE9E7AD8397CB /* MixerPanel.swift in Sources */,
 				A7848B24187E4BDC0474FE5C /* Ports.swift in Sources */,

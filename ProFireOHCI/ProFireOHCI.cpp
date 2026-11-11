@@ -138,6 +138,14 @@ static void nameChannels(ProFireAudioDevice *dev, IOUserAudioObjectPropertyScope
 // Device discovery and Core Audio device
 // ---------------------------------------------------------------------------
 
+/// Core Audio name: "ProFire 2626", plus the device nickname once the user has set one.
+static void deviceName(ProFireOHCI_IVars *iv, char *out, size_t cap)
+{
+    const char *n = iv->dice.nick;
+    bool custom = n[0] && strcmp(n, "FW2626") != 0;
+    snprintf(out, cap, custom ? "ProFire 2626 (%s)" : "ProFire 2626", n);
+}
+
 static void createAudioDevice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
 {
     Dice &d = iv->dice;
@@ -148,10 +156,13 @@ static void createAudioDevice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
     for (uint32_t i = 0; i < nRx; i++) iv->outCh += d.rx[i].audio;
     iv->rate = d.currentRate() ? d.currentRate() : 48000;
 
-    // Stable UID from the device GUID.
-    char uid[48] = "ProFire2626-0000000000000000";
+    // Stable UID: device GUID + this FireWire controller's GUID. ProFires can share a GUID
+    // (seen: two units both 000d6c0404000002), and Core Audio drops a second device with the same UID.
+    char uid[64] = "ProFire2626-0000000000000000-0000000000000000";
     FWController::RomInfo ri;
-    if (iv->fw.readRomInfo(d.node, ri)) { hex32(uid + 12, ri.guidHi); hex32(uid + 20, ri.guidLo); uid[28] = 0; }
+    if (iv->fw.readRomInfo(d.node, ri)) { hex32(uid + 12, ri.guidHi); hex32(uid + 20, ri.guidLo); }
+    hex32(uid + 29, iv->fw.rd(ohci::GUIDHi)); hex32(uid + 37, iv->fw.rd(ohci::GUIDLo)); uid[45] = 0;
+    char name[96]; deviceName(iv, name, sizeof(name));
 
     auto dev = OSSharedPtr<ProFireAudioDevice>(OSTypeAlloc(ProFireAudioDevice), OSNoRetain);
     if (!dev || !dev->init(self, false, PFSTR(uid), PFSTR("ProFire 2626"),
@@ -159,7 +170,7 @@ static void createAudioDevice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
         LOG("audio device init failed");
         return;
     }
-    dev->SetName(PFSTR("ProFire 2626"));
+    dev->SetName(PFSTR(name));
     dev->SetTransportType(IOUserAudioTransportType::FireWire);
 
     double rates[dice::kRateCount]; uint32_t nr = 0;
@@ -230,8 +241,11 @@ static void findDice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
         if (!iv->dice.probe(&iv->fw, node)) { LOG("DICE probe failed"); continue; }
         iv->dice.dump();
         iv->diceFound = true;
-        if (iv->device) iv->device->SetDeviceIsAlive(true);
-        else createAudioDevice(self, iv);
+        if (iv->device) {
+            iv->device->SetDeviceIsAlive(true);
+            char name[96]; deviceName(iv, name, sizeof(name));
+            iv->device->SetName(PFSTR(name));          // nickname may have changed
+        } else createAudioDevice(self, iv);
         return;
     }
     if (iv->diceFound) LOG("ProFire no longer on the bus");
@@ -420,7 +434,8 @@ void ProFireOHCI::ControlInfo(uint64_t *info, uint32_t count)
 {
     auto *iv = ivars;
     uint64_t v[8] = { iv->diceFound ? 1u : 0u, iv->dice.node, uint64_t(iv->rate), iv->streaming ? 1u : 0u,
-                      0, iv->dice.numTx, iv->dice.numRx, iv->streaming ? iv->engine.sampleTime() : 0 };
+                      0, iv->dice.numTx, iv->dice.numRx,
+                      uint64_t(iv->fw.rd(ohci::GUIDHi)) << 32 | iv->fw.rd(ohci::GUIDLo) };   // [7] controller GUID
     if (iv->diceFound) v[4] = iv->dice.locked() ? 1 : 0;
     for (uint32_t i = 0; i < count && i < 8; i++) info[i] = v[i];
 }

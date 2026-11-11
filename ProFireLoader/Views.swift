@@ -387,6 +387,78 @@ struct DriverView: View {
 
 // MARK: - window
 
+/// Shows a tab once per ProFire ticked in the device menu, side by side, each titled with its name.
+struct PerDevice<Content: View>: View {
+    @EnvironmentObject var devices: DeviceManager
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        let shown = devices.shownInMixer
+        if shown.count <= 1 {
+            content()
+        } else {
+            GeometryReader { g in
+                let w = max(720, (g.size.width - CGFloat(shown.count - 1)) / CGFloat(shown.count))
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 1) {
+                        ForEach(shown, id: \.serviceID) { m in
+                            VStack(alignment: .leading, spacing: 0) {
+                                DeviceTitle().environmentObject(m)
+                                content().environmentObject(m).environmentObject(m.meters)
+                            }
+                            .frame(width: w, height: g.size.height)
+                            .background(Color(white: 0.085))
+                        }
+                    }
+                }
+                .background(Color(white: 0.2))
+            }
+        }
+    }
+}
+
+/// Column title for a ProFire: its name and clock state.
+struct DeviceTitle: View {
+    @EnvironmentObject var m: ProFireModel
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(m.connected ? Theme.green : Theme.red).frame(width: 7, height: 7)
+            Text(m.displayName.uppercased()).font(.system(size: 11, weight: .heavy)).tracking(0.5)
+            Text("\(String(format: "%.1f", Double(m.rate) / 1000)) kHz · \(m.clockSource.name)\(m.locked ? "" : " (not locked)")")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 14).frame(height: 26)
+        .background(Color(white: 0.13))
+    }
+}
+
+/// Header device selector: which ProFires the mixer shows (checkmarks) and which one the other tabs edit.
+struct DeviceMenu: View {
+    @EnvironmentObject var devices: DeviceManager
+    @EnvironmentObject var m: ProFireModel
+    var body: some View {
+        let list = devices.devices
+        if list.isEmpty {
+            Text("ProFire 2626").font(.title2.bold())
+        } else {
+            Menu {
+                Section("Show") {
+                    ForEach(list, id: \.serviceID) { d in
+                        Toggle(d.displayName, isOn: Binding(get: { !devices.hidden.contains(d.key) }, set: { _ in devices.toggleShown(d) }))
+                    }
+                }
+            } label: {
+                let shown = devices.shownInMixer
+                Text(list.count < 2 ? "ProFire 2626" : shown.count > 1 ? "\(shown.count) ProFires" : m.displayName).font(.title2.bold())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(list.count > 1 ? "\(list.count) ProFires: tick the ones every tab shows side by side" : m.displayName)
+            .accessibilityIdentifier("devicemenu")
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var m: ProFireModel
     @State private var tab = ContentView.initialTab
@@ -399,7 +471,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("ProFire 2626").font(.title2.bold())
+                DeviceMenu()
                 Circle().fill(m.connected ? Theme.green : Theme.red).frame(width: 9, height: 9)
                 Text(m.connected ? "\(String(format: "%.1f", Double(m.rate) / 1000)) kHz · \(m.clockSource.name)\(m.locked ? "" : " (not locked)")" : m.statusText)
                     .foregroundStyle(.secondary).lineLimit(1)
@@ -430,10 +502,10 @@ struct ContentView: View {
             ZStack {
                 switch tab {
                 case 0: MixerView()
-                case 1: RouterView().padding()
-                case 2: HardwareView().padding()
-                case 3: MetersView()
-                case 4: AdvancedView().padding()
+                case 1: PerDevice { RouterView().padding() }
+                case 2: PerDevice { HardwareView().padding() }
+                case 3: PerDevice { MetersView() }
+                case 4: PerDevice { AdvancedView().padding() }
                 default: DriverView().padding()
                 }
             }

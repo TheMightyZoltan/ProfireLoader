@@ -317,37 +317,22 @@ struct BusOutputMenu: View {
 
 // MARK: - mixer
 
+/// The mixer page: shared toolbar and row labels, then one block per ProFire shown.
 struct MixerView: View {
-    @EnvironmentObject var m: ProFireModel
-
-    static let stripW: CGFloat = 46, stripGap: CGFloat = 4, colGap: CGFloat = 8, labelW: CGFloat = 50, masterW: CGFloat = 156
-    static let srcH: CGFloat = 18, meterH: CGFloat = 150, knobH: CGFloat = 44, msH: CGFloat = 19, faderH: CGFloat = 196
-    static let valH: CGFloat = 13, numH: CGFloat = 18, nameH: CGFloat = 18
-    static let rowGap: CGFloat = 7
-    static let faderMarks: [Double] = [12, 6, 0, -6, -12, -20, -30, -40, -60]
-    static let groupColors: [Color] = [Theme.link, Theme.pan, Theme.green, Color(red: 0.72, green: 0.52, blue: 1.0),
-                                       Color(red: 1.0, green: 0.45, blue: 0.70), Theme.aux, Theme.yellow, Theme.red,
-                                       Color(red: 0.55, green: 0.62, blue: 1.0)]
-    /// Colour by the group's rank among the groups that exist, so groups present at once differ.
-    private func groupColor(_ id: Int) -> Color {
-        let ids = Set(m.mixer.groups ?? []).filter { $0 > 0 }.sorted()
-        return Self.groupColors[(ids.firstIndex(of: id) ?? 0) % Self.groupColors.count]
-    }
-
+    @EnvironmentObject var devices: DeviceManager
+    typealias D = DeviceMixer
     @State private var fit = FitState()
-    @State private var selection = Set<Int>()
-    @State private var anchor = 0
 
     var body: some View {
+        let shown = devices.shownInMixer
         VStack(spacing: 0) {
-            toolbar
+            toolbar(shown)
             ScrollView([.vertical, .horizontal]) {
-                HStack(alignment: .top, spacing: Self.colGap) {
+                HStack(alignment: .top, spacing: D.colGap) {
                     labelColumn
-                    HStack(alignment: .top, spacing: Self.stripGap) {
-                        ForEach(0..<MixerSettings.channelCount, id: \.self) { strip($0) }
+                    ForEach(shown, id: \.serviceID) { m in
+                        DeviceMixer(showHeader: true).environmentObject(m).environmentObject(m.meters)
                     }
-                    masterColumn
                 }
                 .padding(12)
                 .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
@@ -364,70 +349,105 @@ struct MixerView: View {
         .onAppear { fit.fitted = .zero }
     }
 
-    // MARK: toolbar
-
-    private var toolbar: some View {
+    private func toolbar(_ shown: [ProFireModel]) -> some View {
         HStack(spacing: 14) {
             Text("Aux rows").foregroundStyle(.secondary)
             HStack(spacing: 4) {
-                PadButton(title: "−", on: false, color: .gray, width: 22, help: "Remove an aux row", axID: "auxrows.minus") { m.auxRows = max(1, m.auxRows - 1) }
-                Text("\(m.auxRows)").monospacedDigit().frame(width: 14)
-                PadButton(title: "+", on: false, color: .gray, width: 22, help: "Add an aux row", axID: "auxrows.plus") { m.auxRows = min(7, m.auxRows + 1) }
+                PadButton(title: "−", on: false, color: .gray, width: 22, help: "Remove an aux row", axID: "auxrows.minus") { devices.auxRows = max(1, devices.auxRows - 1) }
+                Text("\(devices.auxRows)").monospacedDigit().frame(width: 14)
+                PadButton(title: "+", on: false, color: .gray, width: 22, help: "Add an aux row", axID: "auxrows.plus") { devices.auxRows = min(7, devices.auxRows + 1) }
             }
             Divider().frame(height: 16)
-            Button("All Mono") { m.allMono() }
-                .help("Unlink every channel and center its pan").accessibilityIdentifier("allmono")
-            Button("Stereo Pairs") { m.stereoPairs() }
-                .help("Link 1/2, 3/4, … as stereo pairs panned L100/R100").accessibilityIdentifier("stereopairs")
-            Divider().frame(height: 16)
             Text("Peak hold").foregroundStyle(.secondary)
-            Picker("", selection: $m.peakHold) {
+            Picker("", selection: $devices.peakHold) {
                 Text("Off").tag(0.0); Text("1 s").tag(1.0); Text("3 s").tag(3.0); Text("10 s").tag(10.0); Text("Hold").tag(-1.0)
             }
             .labelsHidden().pickerStyle(.segmented).frame(width: 230)
             .accessibilityIdentifier("peakhold")
-            Button("Reset Peaks") { m.resetPeaks() }.accessibilityIdentifier("resetpeaks")
+            Button("Reset Peaks") { for m in shown { m.resetPeaks() } }.accessibilityIdentifier("resetpeaks")
             Spacer()
-            Button("Reset Mixer") { m.resetMixer() }.accessibilityIdentifier("resetmixer")
         }
         .controlSize(.small)
         .padding(.horizontal, 12)
         .frame(height: 34)
     }
 
-    // MARK: label column
-
     private var labelColumn: some View {
-        VStack(alignment: .trailing, spacing: Self.rowGap) {
-            label("INPUT").frame(height: Self.srcH)
+        VStack(alignment: .trailing, spacing: D.rowGap) {
+            Color.clear.frame(height: D.headerH)
+            label("INPUT").frame(height: D.srcH)
             DBScale(marks: MeterScale.marks, pos: { MeterScale.frac(db: $0) }, topInset: MeterScale.clipH + MeterScale.clipGap)
-                .frame(height: Self.meterH)
-            ForEach(0..<m.auxRows, id: \.self) { r in
-                let k = r + 1
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("AUX \(k)").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.aux)
-                    PadButton(title: "M", on: m.mixer.auxMuted(r), color: Theme.mute, help: "Mute aux \(k) bus", axID: "auxmute.\(k)") {
-                        var a = m.mixer.auxMute ?? [Bool](repeating: false, count: 7)
-                        a[r].toggle(); m.mixer.auxMute = a
-                    }
-                }
-                .frame(height: Self.knobH)
+                .frame(height: D.meterH)
+            ForEach(0..<devices.auxRows, id: \.self) { r in
+                Text("AUX \(r + 1)").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.aux).frame(height: D.knobH)
             }
-            Text("PAN").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.pan).frame(height: Self.knobH)
-            Color.clear.frame(height: Self.msH)
-            DBScale(marks: Self.faderMarks, pos: FaderCurve.pos, topInset: ConsoleFader.capH / 2, bottomInset: ConsoleFader.capH / 2,
+            Text("PAN").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.pan).frame(height: D.knobH)
+            Color.clear.frame(height: D.msH)
+            DBScale(marks: D.faderMarks, pos: FaderCurve.pos, topInset: ConsoleFader.capH / 2, bottomInset: ConsoleFader.capH / 2,
                     label: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" })
-                .frame(height: Self.faderH)
-            Text("dB").font(.system(size: 9)).foregroundStyle(Theme.dim).frame(height: Self.valH)
-            label("CH").frame(height: Self.numH)
-            label("NAME").frame(height: Self.nameH)
+                .frame(height: D.faderH)
+            Text("dB").font(.system(size: 9)).foregroundStyle(Theme.dim).frame(height: D.valH)
+            label("CH").frame(height: D.numH)
+            label("NAME").frame(height: D.nameH)
         }
-        .frame(width: Self.labelW)
+        .frame(width: D.labelW)
         .padding(.vertical, 8)
     }
 
     private func label(_ t: String) -> some View {
         Text(t).font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.dim)
+    }
+}
+
+/// One ProFire's mixer: name header, 18 channel strips and its MIXER OUT section.
+struct DeviceMixer: View {
+    @EnvironmentObject var m: ProFireModel
+    var showHeader = true
+
+    static let stripW: CGFloat = 46, stripGap: CGFloat = 4, colGap: CGFloat = 8, labelW: CGFloat = 50, masterW: CGFloat = 156
+    static let srcH: CGFloat = 18, meterH: CGFloat = 150, knobH: CGFloat = 44, msH: CGFloat = 19, faderH: CGFloat = 196
+    static let valH: CGFloat = 13, numH: CGFloat = 18, nameH: CGFloat = 18
+    static let rowGap: CGFloat = 7
+    static let faderMarks: [Double] = [12, 6, 0, -6, -12, -20, -30, -40, -60]
+    static let groupColors: [Color] = [Theme.link, Theme.pan, Theme.green, Color(red: 0.72, green: 0.52, blue: 1.0),
+                                       Color(red: 1.0, green: 0.45, blue: 0.70), Theme.aux, Theme.yellow, Theme.red,
+                                       Color(red: 0.55, green: 0.62, blue: 1.0)]
+
+    static let headerH: CGFloat = 22
+
+    /// Colour by the group's rank among the groups that exist, so groups present at once differ.
+    private func groupColor(_ id: Int) -> Color {
+        let ids = Set(m.mixer.groups ?? []).filter { $0 > 0 }.sorted()
+        return Self.groupColors[(ids.firstIndex(of: id) ?? 0) % Self.groupColors.count]
+    }
+
+    @State private var selection = Set<Int>()
+    @State private var anchor = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header.frame(height: Self.headerH)
+            HStack(alignment: .top, spacing: Self.colGap) {
+                HStack(alignment: .top, spacing: Self.stripGap) {
+                    ForEach(0..<MixerSettings.channelCount, id: \.self) { strip($0) }
+                }
+                masterColumn
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text(m.displayName.uppercased()).font(.system(size: 11, weight: .heavy)).tracking(0.5).foregroundStyle(Theme.text)
+            Spacer()
+            Button("All Mono") { m.allMono() }
+                .help("Unlink every channel and center its pan").accessibilityIdentifier("allmono")
+            Button("Stereo Pairs") { m.stereoPairs() }
+                .help("Link 1/2, 3/4, … as stereo pairs panned L100/R100").accessibilityIdentifier("stereopairs")
+            Button("Reset Mixer") { m.resetMixer() }.accessibilityIdentifier("resetmixer")
+        }
+        .controlSize(.mini)
+        .padding(.horizontal, 4)
     }
 
     // MARK: channel strip
@@ -563,7 +583,13 @@ struct MixerView: View {
                     }
                     .frame(height: 36)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("AUX \(k) OUT").font(.system(size: 9.5, weight: .bold)).foregroundStyle(Theme.aux)
+                        HStack(spacing: 6) {
+                            Text("AUX \(k) OUT").font(.system(size: 9.5, weight: .bold)).foregroundStyle(Theme.aux)
+                            PadButton(title: "M", on: m.mixer.auxMuted(r), color: Theme.mute, help: "Mute aux \(k) bus", axID: "auxmute.\(k)") {
+                                var a = m.mixer.auxMute ?? [Bool](repeating: false, count: 7)
+                                a[r].toggle(); m.mixer.auxMute = a
+                            }
+                        }
                         BusOutputMenu(bus: k, width: 128)
                     }
                 }
@@ -688,13 +714,14 @@ struct InputMenu: View {
 
 struct MetersView: View {
     @EnvironmentObject var m: ProFireModel
+    @EnvironmentObject var devices: DeviceManager
     static let meterW: CGFloat = 20, meterH: CGFloat = 150
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
                 Text("Peak hold").foregroundStyle(.secondary)
-                Picker("", selection: $m.peakHold) {
+                Picker("", selection: $devices.peakHold) {
                     Text("Off").tag(0.0); Text("1 s").tag(1.0); Text("3 s").tag(3.0); Text("10 s").tag(10.0); Text("Hold").tag(-1.0)
                 }
                 .labelsHidden().pickerStyle(.segmented).frame(width: 230)

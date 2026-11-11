@@ -145,7 +145,18 @@ final class ProFireModel: ObservableObject {
     let meters = MeterStore()
     @Published var lastError: String?
 
-    let link = DeviceLink()
+    let link: DeviceLink
+    let serviceID: UInt64
+    /// GUID of the ProFire on this controller, known once connected; settings are stored per GUID.
+    @Published var guid = ""
+    @Published var controllerGUID = ""
+    /// Identity across reboots: ProFire GUID + controller GUID (two ProFires can share a GUID).
+    var key: String {
+        if guid.isEmpty { return "" }
+        let noCtrl = controllerGUID.isEmpty || controllerGUID.allSatisfy { $0 == "0" }   // driver before 0.5.74
+        return noCtrl ? guid : "\(guid)-\(controllerGUID)"
+    }
+    private var settingsPrefix = ""          // "" = legacy keys until the device is known
     private let io = DispatchQueue(label: "local.profire.control.io")
     private var map: DiceMap?
     private var lastCoefs = [[UInt32]]()
@@ -156,7 +167,9 @@ final class ProFireModel: ObservableObject {
 
     var mode: RateMode { RateMode.of(rate: rate) }
 
-    init() {
+    init(serviceID: UInt64) {
+        self.serviceID = serviceID
+        link = DeviceLink(serviceID: serviceID)
         let d = UserDefaults.standard
         if let data = d.data(forKey: "mixer"), var m = try? JSONDecoder().decode(MixerSettings.self, from: data) { m.normalise(); mixer = m }
         else { mixer = .factory }
@@ -193,10 +206,39 @@ final class ProFireModel: ObservableObject {
         }
     }
 
+    /// Stop polling and close the driver connection (the controller went away).
+    func shutdown() { pollTimer?.invalidate(); pollTimer = nil; link.close() }
+
     private func persist() {
         let d = UserDefaults.standard
-        d.set(try? JSONEncoder().encode(mixer), forKey: "mixer")
-        d.set(try? JSONEncoder().encode(router), forKey: "router2")
+        d.set(try? JSONEncoder().encode(mixer), forKey: settingsPrefix + "mixer")
+        d.set(try? JSONEncoder().encode(router), forKey: settingsPrefix + "router2")
+    }
+
+    /// Switch to this ProFire's own stored settings. The first ProFire seen after the update
+    /// adopts the settings saved before per-device storage existed; others start from factory.
+    private func loadSettings(for guid: String) {
+        guard !guid.isEmpty, settingsPrefix != "dev.\(guid)." else { return }
+        let d = UserDefaults.standard, p = "dev.\(guid)."
+        var mx: MixerSettings?, rt: RouterSettings?
+        if let data = d.data(forKey: p + "mixer"), var m = try? JSONDecoder().decode(MixerSettings.self, from: data) { m.normalise(); mx = m }
+        if let data = d.data(forKey: p + "router2") { rt = try? JSONDecoder().decode(RouterSettings.self, from: data) }
+        if mx == nil && rt == nil {
+            if d.bool(forKey: "legacyAdopted") { mx = .factory; rt = .factory }
+            else { d.set(true, forKey: "legacyAdopted") }            // keep what init loaded
+        }
+        settingsPrefix = p
+        if let mx { mixer = mx }
+        if let rt { router = rt }
+        persist()
+    }
+
+    /// Label for menus and the mixer: the nickname once set (Hardware › Rename), else
+    /// "ProFire 2626" plus the end of the FireWire controller's ID.
+    var displayName: String {
+        let nick = identity.nickname
+        if !nick.isEmpty && nick != "FW2626" { return nick }
+        return controllerGUID.isEmpty ? "ProFire 2626" : "ProFire 2626 · \(controllerGUID.suffix(4).uppercased())"
     }
 
     // MARK: - polling
@@ -265,7 +307,12 @@ final class ProFireModel: ObservableObject {
                 let cs = try self.link.read(map.global + DICE.clockSelect)
                 let app = try self.link.read(map.application, quads: 4)
                 let sa = try self.link.read(map.standalone, quads: 1)
+                let rom = try self.link.read(0xF000_0400, quads: 5)
+                let guid = String(format: "%08x%08x", rom[3], rom[4])
                 DispatchQueue.main.async {
+                    self.guid = guid
+                    self.controllerGUID = String(format: "%016llx", info.controllerGUID)
+                    self.loadSettings(for: self.key)
                     self.map = map
                     self.connected = true
                     self.statusText = "Connected to ProFire 2626"
@@ -854,7 +901,15 @@ final class ProFireModel: ObservableObject {
         for id in ids {
             var n: Unmanaged<CFString>?; var s = UInt32(MemoryLayout<CFString?>.size)
             var na = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-            if AudioObjectGetPropertyData(id, &na, 0, nil, &s, &n) == noErr, let str = n?.takeRetainedValue() as String?, str.contains("ProFire 2626") { return id }
+            if guid.isEmpty {
+                if AudioObjectGetPropertyData(id, &na, 0, nil, &s, &n) == noErr, let str = n?.takeRetainedValue() as String?, str.contains("ProFire 2626") { return id }
+            } else {
+                // The driver's device UID is "ProFire2626-<GUID>": pick this ProFire's device.
+                var ua = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+                var u: Unmanaged<CFString>?; var us = UInt32(MemoryLayout<CFString?>.size)
+                if AudioObjectGetPropertyData(id, &ua, 0, nil, &us, &u) == noErr, let uid = u?.takeRetainedValue() as String?,
+                   uid.lowercased() == "profire2626-\(key)".lowercased() || uid.lowercased() == "profire2626-\(guid)".lowercased() { return id }
+            }
         }
         return nil
     }
