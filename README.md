@@ -27,6 +27,8 @@ isochronous AM824 streaming, and an AudioDriverKit device.
 
 The dext matches only the FW643 (`IOPCIMatch 0x590111c1`, `IOPCITunnelCompatible`).
 
+**Apple silicon only.** ProFire Control and the installer are arm64 only, and the installer refuses to run on Intel Macs. The dext itself builds universal (x86_64 + arm64), but it has never been tested on Intel. On an Intel Mac before macOS 26, Apple's own FireWire stack would claim the controller anyway.
+
 ## ProFire Control (the control panel)
 
 `/Applications/ProFireLoader.app`, shown as **ProFire Control**, replaces M-Audio's ProFire control panel:
