@@ -336,8 +336,35 @@ struct AdvancedView: View {
 struct DriverView: View {
     @EnvironmentObject var ext: ExtensionManager
     @EnvironmentObject var m: ProFireModel
+    @State private var v = DriverVersions()
     var body: some View {
         Form {
+            Section("Versions") {
+                LabeledContent("ProFire Control") { Text(v.app).textSelection(.enabled) }
+                LabeledContent("Driver in this app") { Text(v.bundled).textSelection(.enabled) }
+                LabeledContent("Installed in macOS") {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        if v.installed.isEmpty { Text("none").foregroundStyle(.secondary) }
+                        ForEach(v.installed, id: \.self) { d in
+                            Text("\(d.version) · \(d.state)").foregroundStyle(d.state.contains("activated enabled") ? .primary : .secondary)
+                        }
+                    }
+                }
+                LabeledContent("Running") {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        if v.running.isEmpty { Text("no FireWire controller found").foregroundStyle(.secondary) }
+                        ForEach(v.running, id: \.self) { r in
+                            Text("controller \(r.controller): " + (r.build.map { "driver build \($0)" } ?? "no driver"))
+                                .foregroundStyle(r.build == nil ? Color.orange : .primary)
+                        }
+                    }
+                }
+                if v.upgradePending {
+                    Text("A driver update is waiting: restart the Mac to finish it. Until then, newly connected FireWire controllers can't start the driver.")
+                        .font(.callout).foregroundStyle(.orange)
+                }
+                Button("Refresh") { v = DriverVersions.load() }
+            }
             Section("ProFire driver") {
                 LabeledContent("Connection") { Text(m.connected ? "Connected" : m.statusText) }
                 LabeledContent("Streaming") { Text(m.streaming ? "Yes (audio running)" : "Idle") }
@@ -351,7 +378,10 @@ struct DriverView: View {
                 Text("The driver needs System Integrity Protection disabled and system extension developer mode on. After installing, approve it in System Settings › General › Login Items & Extensions › Driver Extensions.")
                     .font(.callout).foregroundStyle(.secondary)
             }
-        }.formStyle(.grouped)
+        }
+        .formStyle(.grouped)
+        .onAppear { v = DriverVersions.load() }
+        .onChange(of: ext.status) { _, _ in v = DriverVersions.load() }
     }
 }
 
