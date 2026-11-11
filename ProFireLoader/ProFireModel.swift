@@ -126,7 +126,14 @@ final class ProFireModel: ObservableObject {
     @Published var standaloneClock: ClockSource = .internalClock
 
     // mixer / router
-    @Published var mixer: MixerSettings { didSet { if mixer != oldValue { persist(); scheduleMixerPush() } } }
+    @Published var mixer: MixerSettings {
+        didSet {
+            guard mixer != oldValue else { return }
+            persist(); scheduleMixerPush()
+            // Channel inputs are router entries (source -> mixer input).
+            if mixer.channels.map(\.source) != oldValue.channels.map(\.source) { scheduleRouterPush() }
+        }
+    }
     @Published var router: RouterSettings { didSet { if router != oldValue { persist(); scheduleRouterPush() } } }
     @Published var auxRows = 2 { didSet { UserDefaults.standard.set(auxRows, forKey: "auxRows") } }
     @Published var monoStrips = false { didSet { UserDefaults.standard.set(monoStrips, forKey: "monoStrips") } }
@@ -446,7 +453,8 @@ final class ProFireModel: ObservableObject {
         let n = Int(try link.read(cur))
         guard n > 0, n < map.routerQuads else { return }
         var routes = [UInt8: UInt8]()                      // destination -> source
-        for e in try link.read(cur + 4, quads: n) { routes[UInt8(e & 0xFF)] = UInt8((e >> 8) & 0xFF) }
+        let current = try link.read(cur + 4, quads: n)
+        for e in current { routes[UInt8(e & 0xFF)] = UInt8((e >> 8) & 0xFF) }
 
         for d in Dest.routable {
             guard let dp = d.port(mode) else { continue }
@@ -464,6 +472,9 @@ final class ProFireModel: ObservableObject {
             routes[dp.id] = (s.port(mode) ?? Port.muted).id
         }
         let entries = Self.orderedEntries(routes)
+        // Loading a router interrupts the ProFire's audio briefly, even with identical contents:
+        // skip it when the device already has exactly this routing (e.g. every app launch).
+        if entries == current.map({ $0 & 0xFFFF }) { return }
         guard entries.count + 1 <= map.routerQuads else { throw LinkError.call(-1) }
         try link.write(map.router, [UInt32(entries.count)] + entries)
         try link.eap(DICE.ldRouter | mode.flag)

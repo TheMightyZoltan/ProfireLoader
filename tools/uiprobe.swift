@@ -136,6 +136,13 @@ for (label, key, kind) in steps {
         ev(.leftMouseDown, p); usleep(50_000)
         for i in 1...10 { ev(.leftMouseDragged, CGPoint(x: p.x, y: p.y + dy * CGFloat(i) / 10)); usleep(20_000) }
         ev(.leftMouseUp, CGPoint(x: p.x, y: p.y + dy)); usleep(350_000)
+    case let k where k.hasPrefix("lmenu"):      // click a menu button, then pick item N (1-based) with arrows
+        let n = Int(k.dropFirst(5)) ?? 1
+        click(p); usleep(300_000)
+        let src = CGEventSource(stateID: .hidSystemState)
+        for _ in 0..<n { CGEvent(keyboardEventSource: src, virtualKey: 125, keyDown: true)?.post(tap: .cghidEventTap); CGEvent(keyboardEventSource: src, virtualKey: 125, keyDown: false)?.post(tap: .cghidEventTap); usleep(120_000) }
+        CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: true)?.post(tap: .cghidEventTap); CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: false)?.post(tap: .cghidEventTap)
+        usleep(500_000)
     case let k where k.hasPrefix("rmenu"):      // right-click, then pick menu item N (1-based) with arrows
         let n = Int(k.dropFirst(5)) ?? 1
         for t in [CGEventType.rightMouseDown, .rightMouseUp] {
