@@ -10,10 +10,11 @@ import UniformTypeIdentifiers
 // MARK: - building blocks
 
 struct MeterBar: View {
-    var level: Float
+    var level: Float = 0
+    var tap: MeterTap? = nil
     var vertical = true
     var body: some View {
-        LEDMeter(reading: MeterReading(level: level), vertical: vertical, showClip: false, segments: vertical ? 30 : 40)
+        LEDMeter(tap: tap, fixed: tap == nil ? MeterReading(level: level) : nil, vertical: vertical, showClip: false, segments: vertical ? 30 : 40)
             .frame(width: vertical ? 8 : nil, height: vertical ? nil : 7)
     }
 }
@@ -79,8 +80,8 @@ struct RouterView: View {
                     } label: { Text(cur?.name ?? "Custom (see channels)") }
                     .frame(width: 220).disabled(ports == nil)
                     VStack(spacing: 3) {
-                        MeterBar(level: m.level(dest: ports?.0), vertical: false)
-                        MeterBar(level: m.level(dest: ports?.1), vertical: false)
+                        MeterBar(tap: m.meter(dest: ports?.0), vertical: false)
+                        MeterBar(tap: m.meter(dest: ports?.1), vertical: false)
                     }.frame(width: 160)
                     if ports == nil { Text("not available at \(m.rate / 1000) kHz (S/MUX)").font(.caption).foregroundStyle(.secondary) }
                     if pair == .spdifOpt && !m.opticalBIsSPDIF { Text("inactive: optical port B is in ADAT mode").font(.caption).foregroundStyle(.secondary) }
@@ -99,7 +100,7 @@ struct RouterView: View {
                         HStack {
                             Text(d.name).frame(width: 170, alignment: .leading)
                             SignalMenu(current: m.router.source(d)) { m.router.routes[d] = $0 }.disabled(port == nil)
-                            MeterBar(level: m.level(dest: port), vertical: false).frame(width: 160)
+                            MeterBar(tap: m.meter(dest: port), vertical: false).frame(width: 160)
                             if port == nil { Text("not available at \(m.rate / 1000) kHz").font(.caption).foregroundStyle(.secondary) }
                         }
                     }

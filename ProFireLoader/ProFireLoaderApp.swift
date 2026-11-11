@@ -60,6 +60,7 @@ struct ProFireLoaderApp: App {
         Window("ProFire Control", id: "main") {
             ContentView()
                 .environmentObject(model)
+                .environmentObject(model.meters)
                 .environmentObject(manager)
                 .onAppear {
                     // `open ProFireLoader.app --args --activate` / `--deactivate` for scripted installs.

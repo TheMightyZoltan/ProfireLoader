@@ -39,13 +39,15 @@ enum MeterScale {
 
 /// Segmented LED meter with peak-hold segment and a latching clip LED (click to reset).
 struct LEDMeter: View {
-    @EnvironmentObject var m: ProFireModel
-    var reading: MeterReading
+    @EnvironmentObject var meters: MeterStore
+    var tap: MeterTap? = nil
+    var fixed: MeterReading? = nil
     var vertical = true
     var showClip = true
     var segments = 30
 
     var body: some View {
+        let reading = fixed ?? tap.map { meters.reading($0) } ?? MeterReading()
         let core = Canvas { ctx, size in
             let n = segments, gap: CGFloat = 1
             let len = vertical ? size.height : size.width
@@ -72,7 +74,7 @@ struct LEDMeter: View {
             } else { core }
         }
         .contentShape(Rectangle())
-        .onTapGesture { m.resetPeaks() }
+        .onTapGesture { meters.reset() }
         .help("Click to reset peak hold and clip indicators")
     }
 }
@@ -394,7 +396,7 @@ struct MixerView: View {
     }
 
     private func meterCell(_ i: Int) -> some View {
-        LEDMeter(reading: m.meter(mixerChannel: i)).frame(width: 18)
+        LEDMeter(tap: m.meter(mixerChannel: i)).frame(width: 18)
     }
 
     private func valueText(_ i: Int) -> some View {
@@ -453,8 +455,8 @@ struct MixerView: View {
     private var masterColumn: some View {
         VStack(alignment: .leading, spacing: Self.rowGap) {
             HStack(alignment: .top, spacing: 4) {
-                LEDMeter(reading: m.meter(mixerOut: 0)).frame(width: 18)
-                LEDMeter(reading: m.meter(mixerOut: 1)).frame(width: 18)
+                LEDMeter(tap: m.meter(mixerOut: 0)).frame(width: 18)
+                LEDMeter(tap: m.meter(mixerOut: 1)).frame(width: 18)
                 DBScale(marks: MeterScale.marks, pos: { MeterScale.frac(db: $0) }, topInset: MeterScale.clipH + MeterScale.clipGap,
                         alignment: .leading)
                     .frame(width: 22)
@@ -468,8 +470,8 @@ struct MixerView: View {
                 let k = r + 1
                 HStack(spacing: 6) {
                     HStack(spacing: 2) {
-                        LEDMeter(reading: m.meter(mixerOut: 2 * k), showClip: false, segments: 15).frame(width: 6)
-                        LEDMeter(reading: m.meter(mixerOut: 2 * k + 1), showClip: false, segments: 15).frame(width: 6)
+                        LEDMeter(tap: m.meter(mixerOut: 2 * k), showClip: false, segments: 15).frame(width: 6)
+                        LEDMeter(tap: m.meter(mixerOut: 2 * k + 1), showClip: false, segments: 15).frame(width: 6)
                     }
                     .frame(height: 36)
                     VStack(alignment: .leading, spacing: 3) {
@@ -603,7 +605,7 @@ struct MetersView: View {
         }
     }
 
-    private func bridge(_ title: String, _ groups: [(String, [(String, MeterReading)])]) -> some View {
+    private func bridge(_ title: String, _ groups: [(String, [(String, MeterTap)])]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.text)
             HStack(alignment: .top, spacing: 14) {
@@ -616,7 +618,7 @@ struct MetersView: View {
                         HStack(spacing: 5) {
                             ForEach(Array(g.1.enumerated()), id: \.0) { _, it in
                                 VStack(spacing: 3) {
-                                    LEDMeter(reading: it.1).frame(width: Self.meterW, height: Self.meterH)
+                                    LEDMeter(tap: it.1).frame(width: Self.meterW, height: Self.meterH)
                                     Text(it.0).font(.system(size: 9).monospacedDigit()).foregroundStyle(Theme.dim).frame(width: Self.meterW + 4)
                                 }
                             }

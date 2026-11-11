@@ -52,6 +52,8 @@ build/pfreg eap 0x10001             # LD_ROUTER, low rates
 
 Measured device facts, used by the app:
 - **Optical port B is one port with two modes.** Routing anything to the S/PDIF-optical transmitter (AES channels 7/8, the "TOS" transmitter) while the port is in ADAT mode corrupts the ADAT B *input*: measured as bursts of silence. The app removes the inactive side's routes, so in ADAT mode there are no AES1 destinations, and in S/PDIF mode there are no ADAT B outputs. Switching the mode re-applies the router.
+- **Router entry order matters.** The firmware drives the front-panel input signal/peak LEDs from fixed peak-meter slots: entries 1–8 must carry analog inputs 1–8 (at power-on they are `Analog In k → Computer In k`). A router written in another order (sorted by destination, say) leaves the LEDs watching other signals until a power cycle. The app always writes analog inputs first, then computer inputs, outputs and mixer inputs, like the ProFire's own list. The gain knobs are firmware-read too ("gainADC") but don't depend on the router.
+- **Rate changes** stop audio for about 2.5 s (two clock re-selects); an occasional single glitch a few seconds after a switch is still open. Steady-state 44.1–96 kHz loopbacks are glitch-free.
 - **Mixer:** 18 inputs × 16 outputs. Coefficient `(out, in)` is at mixer quadlet `1 + out·18 + in`, linear 16-bit, `0x4000` = 0 dB, `0xFFFF` ≈ +12 dB. The mixer region rejects block reads.
 - **Router entries:** `(source << 8) | destination`, each byte `block << 4 | channel`. Blocks: AES 0, ADAT 1, mixer 2 (mixer inputs 2/3 as destinations), analog InS1 5, FireWire streams 0xB/0xC, mute 0xF.
 - **Peak meters:** bits 27:16 of each peak entry are a 12-bit linear level for that route.

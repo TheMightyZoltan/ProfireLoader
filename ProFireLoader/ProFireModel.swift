@@ -112,16 +112,10 @@ final class ProFireModel: ObservableObject {
     @Published var auxRows = 2 { didSet { UserDefaults.standard.set(auxRows, forKey: "auxRows") } }
 
     // peak hold: seconds (0 = off, -1 = until reset); clip LEDs latch until reset
-    @Published var peakHold: Double = 3 { didSet { UserDefaults.standard.set(peakHold, forKey: "peakHold") } }
-    @Published var srcPeak = [UInt8: Float]()
-    @Published var dstPeak = [UInt8: Float]()
-    @Published var srcClip = Set<UInt8>()
-    @Published var dstClip = Set<UInt8>()
-    private var srcPeakTime = [UInt8: Date](), dstPeakTime = [UInt8: Date]()
+    @Published var peakHold: Double = 3 { didSet { UserDefaults.standard.set(peakHold, forKey: "peakHold"); meters.peakHold = peakHold } }
 
-    // meters (linear 0...1), keyed by router port id
-    @Published var srcLevel = [UInt8: Float]()
-    @Published var dstLevel = [UInt8: Float]()
+    /// Meter levels live in their own store, so a meter update redraws only the meters, not every view.
+    let meters = MeterStore()
     @Published var lastError: String?
 
     let link = DeviceLink()
@@ -143,6 +137,7 @@ final class ProFireModel: ObservableObject {
         else { router = .factory }
         if d.object(forKey: "auxRows") != nil { auxRows = max(1, min(7, d.integer(forKey: "auxRows"))) }
         if d.object(forKey: "peakHold") != nil { peakHold = d.double(forKey: "peakHold") }
+        meters.peakHold = peakHold
         // One-time: earlier versions left the mixer unrouted (inaudible). Like M-Audio's factory
         // setup, feed Analog Out 1/2 from the mixer master and put SW returns 1/2 on mixer 17/18.
         if !d.bool(forKey: "mixerRoutedV1") {
@@ -197,14 +192,12 @@ final class ProFireModel: ObservableObject {
                     xs = try self.link.read(map.global + DICE.extStatus)
                 }
                 DispatchQueue.main.async {
-                    self.srcLevel = self.decay(self.srcLevel, src)
-                    self.dstLevel = self.decay(self.dstLevel, dst)
-                    self.updatePeaks(src, peak: &self.srcPeak, time: &self.srcPeakTime, clip: &self.srcClip)
-                    self.updatePeaks(dst, peak: &self.dstPeak, time: &self.dstPeakTime, clip: &self.dstClip)
+                    self.meters.update(src: src, dst: dst)
                     if let info {
-                        self.locked = info.locked; self.streaming = info.streaming
-                        self.extStatus = xs
-                        if let c = ClockSource(rawValue: Int(cs & 0xFF)) { self.clockSource = c }
+                        if self.locked != info.locked { self.locked = info.locked }
+                        if self.streaming != info.streaming { self.streaming = info.streaming }
+                        if self.extStatus != xs { self.extStatus = xs }
+                        if let c = ClockSource(rawValue: Int(cs & 0xFF)), c != self.clockSource { self.clockSource = c }
                         let r = Int(self.currentCoreAudioRate() ?? Double(info.rate))
                         if r != self.rate { self.rate = r; self.scheduleRouterPush() }
                     }
@@ -215,28 +208,7 @@ final class ProFireModel: ObservableObject {
         }
     }
 
-    private func decay(_ old: [UInt8: Float], _ new: [UInt8: Float]) -> [UInt8: Float] {
-        var out = new
-        for (k, v) in old { out[k] = max(new[k] ?? 0, v * 0.82) }
-        return out
-    }
-
-    private func updatePeaks(_ raw: [UInt8: Float], peak: inout [UInt8: Float], time: inout [UInt8: Date], clip: inout Set<UInt8>) {
-        let now = Date()
-        var out = peak
-        for (k, v) in raw where v >= 0.999 && !clip.contains(k) { clip.insert(k) }
-        guard peakHold != 0 else { if !out.isEmpty { out = [:] }; if out != peak { peak = out }; return }
-        for k in Set(raw.keys).union(peak.keys) {
-            let v = raw[k] ?? 0, held = out[k] ?? 0
-            let expired = peakHold > 0 && now.timeIntervalSince(time[k] ?? .distantPast) > peakHold
-            if v >= held || expired { out[k] = v; time[k] = now }
-        }
-        if out != peak { peak = out }
-    }
-
-    func resetPeaks() {
-        srcPeak = [:]; dstPeak = [:]; srcPeakTime = [:]; dstPeakTime = [:]; srcClip = []; dstClip = []
-    }
+    func resetPeaks() { meters.reset() }
 
     private func disconnected(_ error: Error) {
         connected = false
@@ -382,10 +354,34 @@ final class ProFireModel: ObservableObject {
             guard let dp = Dest.mixerIn(i).port(mode) else { continue }
             routes[dp.id] = (s.port(mode) ?? Port.muted).id
         }
-        let entries = routes.keys.sorted().map { UInt32(routes[$0]!) << 8 | UInt32($0) }
+        let entries = Self.orderedEntries(routes)
         guard entries.count + 1 <= map.routerQuads else { throw LinkError.call(-1) }
         try link.write(map.router, [UInt32(entries.count)] + entries)
         try link.eap(DICE.ldRouter | mode.flag)
+    }
+
+    /// Router entries in the ProFire's own order. The firmware drives the front-panel input LEDs
+    /// from fixed peak-meter slots: entries 1-8 must carry analog inputs 1-8 (at power-on they are
+    /// analog in -> computer). After that come the computer inputs, the outputs and the mixer inputs.
+    nonisolated static func orderedEntries(_ routes: [UInt8: UInt8]) -> [UInt32] {
+        var left = routes                                  // destination -> source
+        var order = [UInt8]()
+        let computer: [UInt8] = Array(0xB0...0xBF) + Array(0xC0...0xCF)
+        for k in 0..<8 {
+            let src = UInt8(Port.ins1 << 4) | UInt8(k)
+            let cands = left.filter { $0.value == src }.map { $0.key }
+            if let d = cands.filter({ computer.contains($0) }).min() ?? cands.min() {
+                order.append(d); left.removeValue(forKey: d)
+            }
+        }
+        func take(_ ds: [UInt8]) { for d in ds where left[d] != nil { order.append(d); left.removeValue(forKey: d) } }
+        take(computer)
+        take(Array(0x50...0x5F))                           // analog outputs
+        take(Array(0x00...0x0F))                           // AES (S/PDIF coax / optical)
+        take(Array(0x10...0x1F))                           // ADAT
+        take(Array(0x20...0x3F))                           // mixer inputs
+        order += left.keys.sorted()
+        return order.map { UInt32(routes[$0]!) << 8 | UInt32($0) }
     }
 
     // MARK: - hardware settings
@@ -760,24 +756,14 @@ final class ProFireModel: ObservableObject {
 
     // MARK: - meter helpers
 
-    func level(source s: Signal) -> Float { s.port(mode).map { srcLevel[$0.id] ?? 0 } ?? 0 }
-    func level(dest p: Port?) -> Float { p.map { dstLevel[$0.id] ?? 0 } ?? 0 }
-    func level(mixerChannel i: Int) -> Float { Dest.mixerIn(i).port(mode).map { dstLevel[$0.id] ?? 0 } ?? 0 }
-    func level(mixerOut o: Int) -> Float { srcLevel[Port(Port.mixer, o).id] ?? 0 }
+    func level(source s: Signal) -> Float { meters.snap.src[s.port(mode)?.id ?? 0xFF] ?? 0 }
+    func level(dest p: Port?) -> Float { p.map { meters.snap.dst[$0.id] ?? 0 } ?? 0 }
 
-    // meter readings with peak hold / clip
-    private func reading(src id: UInt8?) -> MeterReading {
-        guard let id else { return MeterReading() }
-        return MeterReading(level: srcLevel[id] ?? 0, peak: srcPeak[id] ?? 0, clip: srcClip.contains(id))
-    }
-    private func reading(dst id: UInt8?) -> MeterReading {
-        guard let id else { return MeterReading() }
-        return MeterReading(level: dstLevel[id] ?? 0, peak: dstPeak[id] ?? 0, clip: dstClip.contains(id))
-    }
-    func meter(source s: Signal) -> MeterReading { reading(src: s.port(mode)?.id) }
-    func meter(dest p: Port?) -> MeterReading { reading(dst: p?.id) }
-    func meter(mixerChannel i: Int) -> MeterReading { reading(dst: Dest.mixerIn(i).port(mode)?.id) }
-    func meter(mixerOut o: Int) -> MeterReading { reading(src: Port(Port.mixer, o).id) }
+    // meter taps (what a meter view shows), resolved for the current rate mode
+    func meter(source s: Signal) -> MeterTap { MeterTap(isSource: true, id: s.port(mode)?.id) }
+    func meter(dest p: Port?) -> MeterTap { MeterTap(isSource: false, id: p?.id) }
+    func meter(mixerChannel i: Int) -> MeterTap { MeterTap(isSource: false, id: Dest.mixerIn(i).port(mode)?.id) }
+    func meter(mixerOut o: Int) -> MeterTap { MeterTap(isSource: true, id: Port(Port.mixer, o).id) }
 
     // MARK: - mix bus outputs (which output pairs carry the master / an aux bus)
 
@@ -793,4 +779,53 @@ final class ProFireModel: ObservableObject {
 
 struct MeterReading: Equatable {
     var level: Float = 0, peak: Float = 0, clip = false
+}
+
+struct MeterTap: Hashable { var isSource: Bool; var id: UInt8? }
+
+struct MeterSnapshot: Equatable {
+    var src = [UInt8: Float](), dst = [UInt8: Float]()           // decayed levels
+    var srcPeak = [UInt8: Float](), dstPeak = [UInt8: Float]()   // held peaks
+    var srcClip = Set<UInt8>(), dstClip = Set<UInt8>()
+}
+
+/// Router peak meters with decay, peak hold and latching clip. Published once per poll.
+@MainActor
+final class MeterStore: ObservableObject {
+    @Published private(set) var snap = MeterSnapshot()
+    var peakHold: Double = 3
+    private var srcTime = [UInt8: Date](), dstTime = [UInt8: Date]()
+
+    func reading(_ t: MeterTap) -> MeterReading {
+        guard let id = t.id else { return MeterReading() }
+        return t.isSource ? MeterReading(level: snap.src[id] ?? 0, peak: snap.srcPeak[id] ?? 0, clip: snap.srcClip.contains(id))
+                          : MeterReading(level: snap.dst[id] ?? 0, peak: snap.dstPeak[id] ?? 0, clip: snap.dstClip.contains(id))
+    }
+
+    func update(src: [UInt8: Float], dst: [UInt8: Float]) {
+        var n = snap
+        n.src = Self.decay(n.src, src); n.dst = Self.decay(n.dst, dst)
+        Self.peaks(src, &n.srcPeak, &srcTime, &n.srcClip, peakHold)
+        Self.peaks(dst, &n.dstPeak, &dstTime, &n.dstClip, peakHold)
+        if n != snap { snap = n }
+    }
+
+    func reset() { srcTime = [:]; dstTime = [:]; snap.srcPeak = [:]; snap.dstPeak = [:]; snap.srcClip = []; snap.dstClip = [] }
+
+    private static func decay(_ old: [UInt8: Float], _ new: [UInt8: Float]) -> [UInt8: Float] {
+        var out = new
+        for (k, v) in old { let d = max(new[k] ?? 0, v * 0.82); out[k] = d < 0.0002 ? nil : d }
+        return out
+    }
+
+    private static func peaks(_ raw: [UInt8: Float], _ peak: inout [UInt8: Float], _ time: inout [UInt8: Date], _ clip: inout Set<UInt8>, _ hold: Double) {
+        for (k, v) in raw where v >= 0.999 { clip.insert(k) }
+        guard hold != 0 else { peak = [:]; return }
+        let now = Date()
+        for k in Set(raw.keys).union(peak.keys) {
+            let v = raw[k] ?? 0, held = peak[k] ?? 0
+            let expired = hold > 0 && now.timeIntervalSince(time[k] ?? .distantPast) > hold
+            if v >= held || expired { peak[k] = v > 0 ? v : nil; time[k] = now }
+        }
+    }
 }
