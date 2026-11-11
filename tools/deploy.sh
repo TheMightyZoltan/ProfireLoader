@@ -12,8 +12,11 @@ running() { ioreg -l -w0 -r -n 'pci11c1,5901@0' 2>/dev/null | sed -n 's/.*IOUser
 
 echo "deploying $VER ($NEW), running: $(running)"
 pkill -x ProFireLoader; sleep 1
-rm -rf /Applications/ProFireLoader.app && cp -R "$APP" /Applications/
-open /Applications/ProFireLoader.app --args --activate
+# A pkg install leaves a root-owned app we can't replace without admin rights: use a Dev copy then.
+DEST=/Applications/ProFireLoader.app
+[[ -e $DEST && ! -w $DEST/Contents ]] && DEST="/Applications/ProFireLoader Dev.app"
+rm -rf "$DEST" && cp -R "$APP" "$DEST"
+open -n "$DEST" --args --activate
 for i in {1..30}; do
   systemextensionsctl list 2>/dev/null | grep -q "ProFireOHCI ($VER/.*activated enabled" && break
   sleep 1

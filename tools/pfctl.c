@@ -22,6 +22,9 @@ int main(int argc, char **argv)
     else if (!strcmp(w, "tone")) c = argc > 2 ? 'O' : 'T';
     else if (!strcmp(w, "rate")) { c = 'A'; arg /= 10; }
     else if (!strcmp(w, "itrestart")) c = 'I';
+    else if (!strcmp(w, "itdiag")) c = 'Q';
+    else if (!strcmp(w, "forceroot")) c = 'F';
+    else if (!strcmp(w, "unforceroot")) c = 'K';
     else if (!strcmp(w, "raw")) c = 'W';
     else if (!strcmp(w, "zts")) c = 'J';
     else if (!strcmp(w, "busreset")) c = 'G';

@@ -122,7 +122,7 @@ uint64_t AmdtpEngine::hostOfCycle(uint64_t absCycle) const
 void AmdtpEngine::writeIT(int o, uint64_t absCycle, uint32_t blocks, uint16_t syt, uint64_t firstFrame)
 {
     Ring &r = it[o];
-    uint32_t slot = uint32_t((absCycle - itStartAbs) % kSlots);
+    uint32_t slot = uint32_t((absCycle - itStart[o]) % kSlots);
     uint8_t *blk = r.desc.cpu + slot * kITBlock;
     volatile uint32_t *q = r.data.q32(slot * kSlotSize);
     const StreamCfg &sc = cfg.out[o];
@@ -180,6 +180,7 @@ void AmdtpEngine::programIT(int o)
     uint32_t base = ITContextBase + ITContextStride * uint32_t(cfg.out[o].ctx);
     fw->wr(base + CtxControlClear, 0xFFFFFFFF);
     for (int i = 0; i < 200 && (fw->rd(base + CtxControlSet) & Ctx_active); i++) IODelay(10);
+    itStart[o] = itStartAbs;
     for (uint32_t i = 0; i < kSlots; i++) writeIT(o, itStartAbs + i, 0, 0xFFFF, 0);
     ioBarrier();
     uint64_t m = itStartAbs % 64000;
@@ -191,16 +192,42 @@ void AmdtpEngine::programIT(int o)
 
 void AmdtpEngine::startIT(uint64_t firstIRAbs)
 {
+    beginIT(firstIRAbs, uint64_t(refCycle));
+}
+
+// Cycle in which IT stream o sent its slot-0 packet: OUTPUT_LAST status carries the timestamp.
+uint64_t AmdtpEngine::measureITStart(int o, uint64_t near)
+{
+    auto *d2 = reinterpret_cast<volatile Descriptor *>(it[o].desc.cpu + 32);
+    for (int i = 0; i < 100 && d2->transferStatus == 0; i++) IODelay(50);
+    if (d2->transferStatus == 0) { LOG("IT%d: no start status, assuming cycle %llu", o, near); return near; }
+    return unwrap(d2->resCount, near);
+}
+
+// Start the outgoing streams. Default: run immediately and measure where slot 0 went out
+// (cycleMatch start stopped firing on the FW643 here, leaving IT idle). Every packet carries
+// NO-DATA until the first real one at `target`, which is safely ahead of the hardware.
+void AmdtpEngine::beginIT(uint64_t firstIRAbs, uint64_t nowAbs)
+{
     uint64_t target = firstIRAbs + cfg.transferDelayCycles;
-    uint64_t nowAbs = uint64_t(refCycle);
     if (target < nowAbs + 8) target = nowAbs + 8;
-    itStartAbs = target;
+    itStartAbs = itCycleMatch ? target : nowAbs;
+    for (int o = 0; o < cfg.nOut; o++) { dbc[o] = 0; programIT(o); }
+    if (!itCycleMatch) {
+        uint64_t latest = 0;
+        for (int o = 0; o < cfg.nOut; o++) {
+            itStart[o] = measureITStart(o, nowAbs);
+            if (itStart[o] > latest) latest = itStart[o];
+        }
+        itStartAbs = itStart[0];
+        // The hardware keeps going while we measured: stay well ahead of it.
+        if (target < latest + 24) target = latest + 24;
+    }
     itNextAbs = target;
     delay = uint32_t(target - firstIRAbs);
-    for (int o = 0; o < cfg.nOut; o++) { dbc[o] = 0; programIT(o); }
     itStarted = true;
-    LOG("transmit started: IR cycle %llu -> IT cycle %llu (delay %u cycles = %u us)",
-        firstIRAbs, target, delay, delay * 125);
+    LOG("transmit started: IR cycle %llu -> IT cycle %llu (delay %u cycles = %u us), slot 0 at %llu/%llu",
+        firstIRAbs, target, delay, delay * 125, itStart[0], cfg.nOut > 1 ? itStart[1] : 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -376,11 +403,8 @@ void AmdtpEngine::pump()
         uint32_t ct = fw->cycleTimer();
         uint32_t c64 = ((ct >> 25) % 8) * 8000 + ((ct >> 12) & 0x1FFF);
         uint64_t nowAbs = unwrap(((c64 / 8000) << 13) | (c64 % 8000), lastAbs);
-        itStartAbs = nowAbs + 16;
-        itNextAbs = itStartAbs;
-        delay = uint32_t(itStartAbs - lastAbs);
-        for (int o = 0; o < cfg.nOut; o++) { dbc[o] = 0; programIT(o); }
-        LOG("IT restarted at cycle %llu (delay %u)", itStartAbs, delay);
+        beginIT(lastAbs, nowAbs);
+        LOG("IT restarted at cycle %llu (delay %u)", itNextAbs, delay);
     }
 
     // Host time <-> cycle reference.

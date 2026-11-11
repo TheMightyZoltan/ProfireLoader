@@ -22,6 +22,7 @@
 #include "ProFireAudioDevice.h"
 #include <DriverKit/IOUserClient.h>
 #include "Common.h"
+#include "OHCI.h"
 #include "FWController.h"
 #include "Dice.h"
 #include "DiceRegs.h"
@@ -496,6 +497,9 @@ kern_return_t IMPL(ProFireOHCI, NewUserClient)
         case 'O': word = "tone"; break;
         case 'A': word = "rate"; arg *= 10; break;
         case 'I': word = "itrestart"; break;
+        case 'Q': word = "itdiag"; break;
+        case 'F': word = "forceroot"; break;
+        case 'K': word = "unforceroot"; break;
         case 'W': word = "raw"; break;
         case 'J': word = "zts"; break;
         case 'G': word = "busreset"; break;
@@ -554,10 +558,22 @@ static kern_return_t handleCommand(ProFireOHCI *self, ProFireOHCI_IVars *iv, con
         if (iv->diceFound) iv->dice.dumpRouter();
     } else if (eq("reenable")) {
         if (iv->diceFound) { iv->dice.enable(false); IOSleep(50); iv->dice.enable(true); LOG("DICE enable toggled"); }
+    } else if (eq("forceroot")) {
+        iv->fw.forceRoot(true); LOG("forcing local root");
+    } else if (eq("unforceroot")) {
+        iv->fw.forceRoot(false); LOG("releasing local root");
     } else if (eq("busreset")) {
         iv->fw.forceBusReset();
     } else if (eq("zts")) {
         gZtsLog = !gZtsLog;
+    } else if (eq("itdiag")) {
+        using namespace ohci;
+        uint32_t c1 = iv->fw.cycleTimer(); IOSleep(3); uint32_t c2 = iv->fw.cycleTimer();
+        LOG("itdiag: cycle timer %u.%u -> %u.%u, LinkControl 0x%08x, HCControl 0x%08x, NodeID 0x%08x, IsoXmitEvent 0x%08x",
+            c1 >> 25, (c1 >> 12) & 0x1FFF, c2 >> 25, (c2 >> 12) & 0x1FFF, iv->fw.rd(LinkControlSet), iv->fw.rd(HCControlSet),
+            iv->fw.rd(NodeID), iv->fw.rd(IsoXmitIntEventSet));
+        for (uint32_t n = 0; n < 8; n++)
+            LOG("itdiag: IT%u ctl 0x%08x cmd 0x%08x", n, iv->fw.rd(ITContextBase + 16 * n + CtxControlSet), iv->fw.rd(ITContextBase + 16 * n + CtxCommandPtr));
     } else if (eq("raw")) {
         iv->engine.rawDumps = 3;
     } else if (eq("itrestart")) {

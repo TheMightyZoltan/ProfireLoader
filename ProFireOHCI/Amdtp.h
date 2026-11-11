@@ -41,7 +41,7 @@ public:
     // Self-test: sine on one output channel (0-based, -1 = off), input level logging.
     int  toneChannel = -1;
     bool levelLog = false;
-    bool itCycleMatch = true;        // start IT with cycleMatch (tunable)
+    bool itCycleMatch = false;       // start IT with cycleMatch (off: start now, measure the start cycle)
     bool restartITRequested = false;
     int  rawDumps = 0;               // log raw contents of the next N data packets (stream 0)
 
@@ -70,7 +70,8 @@ private:
 
     // transmit state
     bool     itStarted = false;
-    uint64_t itStartAbs = 0;         // absolute cycle transmitted by IT slot 0
+    uint64_t itStartAbs = 0;         // absolute cycle transmitted by IT slot 0 (stream 0)
+    uint64_t itStart[kMaxStreams] = {};  // per output stream: cycle of its slot 0 (measured)
     uint64_t itNextAbs = 0;          // next IT cycle not yet written
     uint32_t delay = 0;              // actual transfer delay in cycles
     uint8_t  dbc[kMaxStreams] = {};
@@ -112,6 +113,8 @@ private:
     void  startIT(uint64_t firstIRAbs);
     void  logStats();
     void  checkITDead();
+    void  beginIT(uint64_t firstIRAbs, uint64_t nowAbs);
+    uint64_t measureITStart(int o, uint64_t near);
     bool  itDeadLogged = false;
 };
 

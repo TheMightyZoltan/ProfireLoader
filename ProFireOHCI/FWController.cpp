@@ -389,6 +389,13 @@ void FWController::forceBusReset()
     if (phyRead(1, &r1)) phyWrite(1, r1 | 0x40);
 }
 
+// Root holdoff + bus reset: this node becomes root, and so cycle master.
+void FWController::forceRoot(bool on)
+{
+    uint8_t r1 = 0;
+    if (phyRead(1, &r1)) phyWrite(1, (on ? (r1 | 0x80) : (r1 & ~0x80)) | 0x40);
+}
+
 uint32_t FWController::notifyIova() const { return misc.iova(kOffNotify); }
 
 uint32_t FWController::takeNotify()
