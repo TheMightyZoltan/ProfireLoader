@@ -227,7 +227,17 @@ static void createAudioDevice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
     dev->AddStream(iv->outStream.get());
 
     nameChannels(dev.get(), IOUserAudioObjectPropertyScope::Input, d.tx, nTx, iv->inCh);
-    nameChannels(dev.get(), IOUserAudioObjectPropertyScope::Output, d.rx, nRx, iv->outCh);
+    // Playback channels go through the DICE router, so like M-Audio's own panel (and ProFire
+    // Control) they are "SW Return N"; the firmware's names (Line 1, ADAT 1...) only describe
+    // the default route.
+    for (uint32_t ch = 1; ch <= iv->outCh; ch++) {
+        char name[16] = "SW Return ";
+        uint32_t len = 10;
+        if (ch >= 10) name[len++] = char('0' + ch / 10);
+        name[len++] = char('0' + ch % 10);
+        name[len] = 0;
+        dev->SetElementName(ch, IOUserAudioObjectPropertyScope::Output, PFSTR(name));
+    }
 
     kern_return_t ret = self->AddObject(dev.get());
     iv->device = dev;
