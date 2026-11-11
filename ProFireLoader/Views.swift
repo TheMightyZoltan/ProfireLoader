@@ -454,6 +454,18 @@ struct DeviceMenu: View {
                         Toggle(d.displayName, isOn: Binding(get: { !devices.hidden.contains(d.key) }, set: { _ in devices.toggleShown(d) }))
                     }
                 }
+                Section("Order") {
+                    if list.count == 2 {
+                        Button("Swap Positions") { devices.swapPositions(list[0], list[1]) }
+                    } else {
+                        ForEach(list, id: \.serviceID) { d in
+                            Menu(d.displayName) {
+                                Button("Move Left") { devices.move(d, by: -1) }.disabled(d === list.first)
+                                Button("Move Right") { devices.move(d, by: 1) }.disabled(d === list.last)
+                            }
+                        }
+                    }
+                }
             } label: {
                 let shown = devices.shownInMixer
                 Text(list.count < 2 ? "ProFire 2626" : shown.count > 1 ? "\(shown.count) ProFires" : m.displayName).font(.title2.bold())

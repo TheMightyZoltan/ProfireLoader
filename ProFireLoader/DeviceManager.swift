@@ -56,7 +56,7 @@ final class DeviceManager: ObservableObject {
     }
 
     /// ProFires found (a controller without a ProFire isn't one).
-    var devices: [ProFireModel] { models.filter { $0.connected && !$0.key.isEmpty } }
+    var devices: [ProFireModel] { sorted(models.filter { $0.connected && !$0.key.isEmpty }) }
 
     /// The ProFire for the header status, and for every tab when only one is shown.
     var current: ProFireModel { shownInMixer.first { $0.key == currentGUID } ?? devices.filter { !hidden.contains($0.key) }.first ?? devices.first ?? models[0] }
@@ -64,6 +64,34 @@ final class DeviceManager: ObservableObject {
     var shownInMixer: [ProFireModel] {
         let s = devices.filter { !hidden.contains($0.key) }
         return s.isEmpty ? [devices.first ?? models[0]] : s
+    }
+
+    /// Left-to-right order of the ProFires in the mixer and the other tabs (keys; unknown ones last).
+    @Published var order: [String] = UserDefaults.standard.stringArray(forKey: "deviceOrder") ?? [] {
+        didSet { UserDefaults.standard.set(order, forKey: "deviceOrder") }
+    }
+
+    private func sorted(_ list: [ProFireModel]) -> [ProFireModel] {
+        list.enumerated().sorted { x, y in
+            let ix = order.firstIndex(of: x.element.key) ?? Int.max, iy = order.firstIndex(of: y.element.key) ?? Int.max
+            return ix != iy ? ix < iy : x.offset < y.offset
+        }.map(\.element)
+    }
+
+    /// Exchange the positions of two ProFires (settings stay with each).
+    func swapPositions(_ a: ProFireModel, _ b: ProFireModel) {
+        var keys = devices.map(\.key)
+        guard let i = keys.firstIndex(of: a.key), let j = keys.firstIndex(of: b.key) else { return }
+        keys.swapAt(i, j)
+        order = keys
+    }
+
+    func move(_ m: ProFireModel, by delta: Int) {
+        var keys = devices.map(\.key)
+        guard let i = keys.firstIndex(of: m.key) else { return }
+        let j = max(0, min(keys.count - 1, i + delta))
+        keys.swapAt(i, j)
+        order = keys
     }
 
     func toggleShown(_ m: ProFireModel) {
