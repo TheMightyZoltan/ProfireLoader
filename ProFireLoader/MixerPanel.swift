@@ -154,6 +154,9 @@ struct Knob: View {
     var dimmed = false
     var resetValue: Double
     var optionResetValue: Double? = nil      // Option + right-click
+    var onBegin: (() -> Void)? = nil
+    var onEnd: (() -> Void)? = nil
+    var onReset: ((Double) -> Void)? = nil   // resets go here instead of the binding (no group move)
     var text: String
     var help: String
     var axID: String
@@ -180,14 +183,14 @@ struct Knob: View {
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 1).onChanged { g in
             guard enabled else { return }
-            if start == nil { start = value }
+            if start == nil { start = value; onBegin?() }
             let fine = NSEvent.modifierFlags.contains(.option)
             value = max(0, min(1, start! - Double(g.translation.height) / (fine ? 600 : 140)))
-        }.onEnded { _ in start = nil })
-        .simultaneousGesture(TapGesture(count: 2).onEnded { if enabled { value = resetValue } })
+        }.onEnded { _ in start = nil; onEnd?() })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { if enabled { reset(resetValue) } })
         .onRightClick { flags in
             guard enabled else { return }
-            value = flags.contains(.option) ? (optionResetValue ?? resetValue) : resetValue
+            reset(flags.contains(.option) ? (optionResetValue ?? resetValue) : resetValue)
         }
         .help(help)
         .accessibilityElement()
@@ -195,6 +198,8 @@ struct Knob: View {
         .accessibilityValue(text)
         .accessibilityIdentifier(axID)
     }
+
+    private func reset(_ v: Double) { if let onReset { onReset(v) } else { value = v } }
 }
 
 /// Fader with tick marks; drags relative to where it was grabbed (the cap never jumps), double-click = 0 dB.
@@ -202,6 +207,9 @@ struct ConsoleFader: View {
     @Binding var db: Double
     var axID: String
     var capColor = Color(white: 0.80)
+    var onBegin: (() -> Void)? = nil
+    var onEnd: (() -> Void)? = nil
+    var onReset: (() -> Void)? = nil         // 0 dB reset for this fader only
     @State private var startPos: Double?
     static let capH: CGFloat = 26
     static let marks: [Double] = [12, 6, 0, -6, -12, -20, -30, -40, -60]
@@ -231,14 +239,14 @@ struct ConsoleFader: View {
             .frame(width: g.size.width, height: g.size.height, alignment: .top)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 1).onChanged { v in
-                if startPos == nil { startPos = FaderCurve.pos(db) }
+                if startPos == nil { startPos = FaderCurve.pos(db); onBegin?() }
                 let fine = NSEvent.modifierFlags.contains(.option)
                 let p = startPos! - Double(v.translation.height / travel) / (fine ? 4 : 1)
                 db = FaderCurve.db(max(0, min(1, p)))
-            }.onEnded { _ in startPos = nil })
-            .simultaneousGesture(TapGesture(count: 2).onEnded { db = 0 })
+            }.onEnded { _ in startPos = nil; onEnd?() })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { if let onReset { onReset() } else { db = 0 } })
         }
-        .onRightClick { _ in db = 0 }
+        .onRightClick { _ in if let onReset { onReset() } else { db = 0 } }
         .accessibilityElement()
         .accessibilityLabel("Fader")
         .accessibilityValue(dbText(db))
@@ -312,12 +320,23 @@ struct BusOutputMenu: View {
 struct MixerView: View {
     @EnvironmentObject var m: ProFireModel
 
-    static let stripW: CGFloat = 46, linkW: CGFloat = 14, colGap: CGFloat = 8, labelW: CGFloat = 50, masterW: CGFloat = 156
-    static let meterH: CGFloat = 150, knobH: CGFloat = 44, msH: CGFloat = 19, faderH: CGFloat = 196, valH: CGFloat = 13, srcH: CGFloat = 34
+    static let stripW: CGFloat = 46, stripGap: CGFloat = 4, colGap: CGFloat = 8, labelW: CGFloat = 50, masterW: CGFloat = 156
+    static let srcH: CGFloat = 18, meterH: CGFloat = 150, knobH: CGFloat = 44, msH: CGFloat = 19, faderH: CGFloat = 196
+    static let valH: CGFloat = 13, numH: CGFloat = 18, nameH: CGFloat = 18
     static let rowGap: CGFloat = 7
     static let faderMarks: [Double] = [12, 6, 0, -6, -12, -20, -30, -40, -60]
+    static let groupColors: [Color] = [Theme.link, Theme.pan, Theme.green, Color(red: 0.72, green: 0.52, blue: 1.0),
+                                       Color(red: 1.0, green: 0.45, blue: 0.70), Theme.aux, Theme.yellow, Theme.red,
+                                       Color(red: 0.55, green: 0.62, blue: 1.0)]
+    /// Colour by the group's rank among the groups that exist, so groups present at once differ.
+    private func groupColor(_ id: Int) -> Color {
+        let ids = Set(m.mixer.groups ?? []).filter { $0 > 0 }.sorted()
+        return Self.groupColors[(ids.firstIndex(of: id) ?? 0) % Self.groupColors.count]
+    }
 
     @State private var fit = FitState()
+    @State private var selection = Set<Int>()
+    @State private var anchor = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -325,8 +344,8 @@ struct MixerView: View {
             ScrollView([.vertical, .horizontal]) {
                 HStack(alignment: .top, spacing: Self.colGap) {
                     labelColumn
-                    ForEach(0..<(MixerSettings.channelCount / 2), id: \.self) { pair in
-                        if m.monoStrips && !m.mixer.link[pair] { monoPair(pair) } else { pairColumn(pair) }
+                    HStack(alignment: .top, spacing: Self.stripGap) {
+                        ForEach(0..<MixerSettings.channelCount, id: \.self) { strip($0) }
                     }
                     masterColumn
                 }
@@ -355,9 +374,11 @@ struct MixerView: View {
                 Text("\(m.auxRows)").monospacedDigit().frame(width: 14)
                 PadButton(title: "+", on: false, color: .gray, width: 22, help: "Add an aux row", axID: "auxrows.plus") { m.auxRows = min(7, m.auxRows + 1) }
             }
-            Toggle("Unlinked as mono", isOn: $m.monoStrips).toggleStyle(.checkbox)
-                .help("Show channels that aren't linked as separate mono strips")
-                .accessibilityIdentifier("monostrips")
+            Divider().frame(height: 16)
+            Button("All Mono") { m.allMono() }
+                .help("Unlink every channel and center its pan").accessibilityIdentifier("allmono")
+            Button("Stereo Pairs") { m.stereoPairs() }
+                .help("Link 1/2, 3/4, … as stereo pairs panned L100/R100").accessibilityIdentifier("stereopairs")
             Divider().frame(height: 16)
             Text("Peak hold").foregroundStyle(.secondary)
             Picker("", selection: $m.peakHold) {
@@ -374,10 +395,11 @@ struct MixerView: View {
         .frame(height: 34)
     }
 
-    // MARK: columns
+    // MARK: label column
 
     private var labelColumn: some View {
         VStack(alignment: .trailing, spacing: Self.rowGap) {
+            label("INPUT").frame(height: Self.srcH)
             DBScale(marks: MeterScale.marks, pos: { MeterScale.frac(db: $0) }, topInset: MeterScale.clipH + MeterScale.clipGap)
                 .frame(height: Self.meterH)
             ForEach(0..<m.auxRows, id: \.self) { r in
@@ -397,157 +419,139 @@ struct MixerView: View {
                     label: { $0 > 0 ? "+\(Int($0))" : "\(Int($0))" })
                 .frame(height: Self.faderH)
             Text("dB").font(.system(size: 9)).foregroundStyle(Theme.dim).frame(height: Self.valH)
-            Text("INPUT").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.dim).frame(height: Self.srcH)
+            label("CH").frame(height: Self.numH)
+            label("NAME").frame(height: Self.nameH)
         }
         .frame(width: Self.labelW)
         .padding(.vertical, 8)
     }
 
-    private func pairColumn(_ pair: Int) -> some View {
-        let l = pair * 2, r = pair * 2 + 1
-        let linked = m.mixer.link[pair]
+    private func label(_ t: String) -> some View {
+        Text(t).font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.dim)
+    }
+
+    // MARK: channel strip
+
+    private func strip(_ i: Int) -> some View {
+        let g = m.mixer.group(i)
+        let selected = selection.contains(i)
         return VStack(spacing: Self.rowGap) {
-            cells(height: Self.meterH, l: meterCell(l), r: meterCell(r))
-            ForEach(0..<m.auxRows, id: \.self) { k in
-                cells(height: Self.knobH, l: auxKnob(l, k, linked), r: auxKnob(r, k, linked))
-            }
-            cells(height: Self.knobH, l: panKnob(l, linked), r: panKnob(r, linked))
-            HStack(spacing: 0) {
-                msCell(l, linked).frame(width: Self.stripW)
-                linkButton(pair).frame(width: Self.linkW)
-                msCell(r, linked).frame(width: Self.stripW)
-            }
-            .frame(height: Self.msH)
-            cells(height: Self.faderH, l: ConsoleFader(db: levelBinding(l, linked), axID: "fader.\(l + 1)"),
-                  r: ConsoleFader(db: levelBinding(r, linked), axID: "fader.\(r + 1)"))
-            cells(height: Self.valH, l: valueText(l), r: valueText(r))
-            cells(height: Self.srcH, l: SourceButton(index: l), r: SourceButton(index: r))
-        }
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(pair % 2 == 0 ? Theme.strip : Theme.stripAlt))
-        .overlay(alignment: .top) {
-            // stereo-link bracket over the meters
-            Capsule().fill(Theme.link.opacity(linked ? 0.8 : 0)).frame(width: 2 * Self.stripW + Self.linkW - 20, height: 2).offset(y: 3)
-        }
-    }
-
-    private func linkButton(_ pair: Int) -> some View {
-        let linked = m.mixer.link[pair], l = pair * 2, r = pair * 2 + 1
-        return PadButton(title: "", symbol: "link", on: linked, color: Theme.link, width: 13,
-                         help: linked ? "Unlink channels \(l + 1) and \(r + 1)" : "Link channels \(l + 1) and \(r + 1) as a stereo pair",
-                         axID: "link.\(pair + 1)") { m.setLink(pair, !linked) }
-    }
-
-    /// An unlinked pair drawn as two separate mono strips, with the link button between them.
-    private func monoPair(_ pair: Int) -> some View {
-        let toMS = 8 + Self.meterH + Self.rowGap + CGFloat(m.auxRows + 1) * (Self.knobH + Self.rowGap)
-        return HStack(alignment: .top, spacing: 0) {
-            monoColumn(pair * 2)
-            VStack(spacing: 0) {
-                Color.clear.frame(height: toMS)
-                linkButton(pair).frame(height: Self.msH)
-            }
-            .frame(width: Self.linkW + 2)
-            monoColumn(pair * 2 + 1)
-        }
-    }
-
-    private func monoColumn(_ i: Int) -> some View {
-        VStack(spacing: Self.rowGap) {
-            meterCell(i).frame(width: Self.stripW, height: Self.meterH)
-            ForEach(0..<m.auxRows, id: \.self) { k in auxKnob(i, k, false).frame(width: Self.stripW, height: Self.knobH) }
-            panKnob(i, false).frame(width: Self.stripW, height: Self.knobH)
-            msCell(i, false).frame(width: Self.stripW, height: Self.msH)
-            ConsoleFader(db: levelBinding(i, false), axID: "fader.\(i + 1)").frame(width: Self.stripW, height: Self.faderH)
-            valueText(i).frame(width: Self.stripW, height: Self.valH)
-            SourceButton(index: i).frame(width: Self.stripW, height: Self.srcH)
+            InputMenu(index: i).frame(width: Self.stripW, height: Self.srcH)
+            LEDMeter(tap: m.meter(mixerChannel: i)).frame(width: 18).frame(width: Self.stripW, height: Self.meterH)
+            ForEach(0..<m.auxRows, id: \.self) { k in auxKnob(i, k).frame(width: Self.stripW, height: Self.knobH) }
+            panKnob(i).frame(width: Self.stripW, height: Self.knobH)
+            msCell(i).frame(width: Self.stripW, height: Self.msH)
+            ConsoleFader(db: Binding(get: { m.mixer.channels[i].level },
+                                     set: { m.setLevel(i, $0, single: NSEvent.modifierFlags.contains(.shift)) }),
+                         axID: "fader.\(i + 1)",
+                         onBegin: { m.beginDrag(i) }, onEnd: { m.endDrag() },
+                         onReset: { m.setLevel(i, 0, single: true) })
+                .frame(width: Self.stripW, height: Self.faderH)
+            Text(dbText(m.mixer.channels[i].level)).font(.system(size: 9.5).monospacedDigit()).foregroundStyle(Theme.text)
+                .frame(width: Self.stripW, height: Self.valH)
+                .accessibilityIdentifier("val.\(i + 1)")
+            numberButton(i, group: g, selected: selected).frame(width: Self.stripW, height: Self.numH)
+            NameField(index: i).frame(width: Self.stripW - 2, height: Self.nameH)
         }
         .padding(.vertical, 8).padding(.horizontal, 2)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.strip))
+        .background(RoundedRectangle(cornerRadius: 8).fill(g == 0 ? Theme.strip : groupColor(g).opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? Color.white.opacity(0.55) : .clear, lineWidth: 1.5))
         .overlay(alignment: .top) {
-            Text("MONO").font(.system(size: 7, weight: .heavy)).tracking(0.5).foregroundStyle(Theme.dim).offset(y: -1)
+            Capsule().fill(g == 0 ? Color.clear : groupColor(g)).frame(width: Self.stripW - 10, height: 3).offset(y: 2)
         }
     }
 
-    private func cells<L: View, R: View>(height: CGFloat, l: L, r: R) -> some View {
-        HStack(spacing: 0) {
-            l.frame(width: Self.stripW, height: height)
-            Color.clear.frame(width: Self.linkW, height: height)
-            r.frame(width: Self.stripW, height: height)
+    /// Channel number: Finder-style selection (click, Shift-click range, Command-click toggle);
+    /// right-click for link / unlink.
+    private func numberButton(_ i: Int, group g: Int, selected: Bool) -> some View {
+        let targets = selection.contains(i) ? selection : [i]
+        let linkedTargets = targets.filter { m.mixer.group($0) != 0 }
+        return Button { select(i) } label: {
+            Text("\(i + 1)").font(.system(size: 12, weight: .heavy))
+                .foregroundStyle(selected ? Color.black.opacity(0.85) : (g == 0 ? Theme.text : groupColor(g)))
+                .frame(width: Self.stripW - 6, height: Self.numH)
+                .background(RoundedRectangle(cornerRadius: 4).fill(selected ? Color(white: 0.85) : Color(white: 0.22)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(targets.count >= 2 ? "Link Channels \(Self.list(targets))" : "Link (select 2 or more channels)") {
+                m.link(targets); selection = []
+            }
+            .disabled(targets.count < 2)
+            Button(linkedTargets.isEmpty ? "Unlink" : "Unlink Channels \(Self.list(linkedTargets))") { m.unlink(targets) }
+                .disabled(linkedTargets.isEmpty)
+            Divider()
+            Button("Select All") { selection = Set(0..<MixerSettings.channelCount) }
+            Button("Deselect") { selection = [] }.disabled(selection.isEmpty)
+        }
+        .help(g == 0 ? "Channel \(i + 1). Click / Shift-click / Command-click to select, right-click to link."
+                     : "Channel \(i + 1), linked with \(Self.list(m.mixer.members(i))). Right-click to unlink.")
+        .accessibilityLabel("Channel \(i + 1)")
+        .accessibilityValue(selected ? "selected" : "")
+        .accessibilityIdentifier("num.\(i + 1)")
+    }
+
+    private static func list(_ s: some Collection<Int>) -> String { s.sorted().map { "\($0 + 1)" }.joined(separator: ", ") }
+
+    private func select(_ i: Int) {
+        let f = NSEvent.modifierFlags
+        if f.contains(.shift) {
+            let r = min(anchor, i)...max(anchor, i)
+            selection = (f.contains(.command) ? selection : []).union(r)
+        } else if f.contains(.command) {
+            if selection.contains(i) { selection.remove(i) } else { selection.insert(i) }
+            anchor = i
+        } else {
+            selection = selection == [i] ? [] : [i]
+            anchor = i
         }
     }
 
-    private func meterCell(_ i: Int) -> some View {
-        LEDMeter(tap: m.meter(mixerChannel: i)).frame(width: 18)
-    }
-
-    private func valueText(_ i: Int) -> some View {
-        Text(dbText(m.mixer.channels[i].level)).font(.system(size: 9.5).monospacedDigit()).foregroundStyle(Theme.text)
-            .frame(width: 44, height: 13)
-            .accessibilityIdentifier("val.\(i + 1)")
-    }
-
-    private func msCell(_ i: Int, _ linked: Bool) -> some View {
+    private func msCell(_ i: Int) -> some View {
         HStack(spacing: 3) {
-            PadButton(title: "M", on: m.mixer.channels[i].mute, color: Theme.mute, help: "Mute channel \(i + 1)", axID: "mute.\(i + 1)") {
-                set(i, linked) { $0.mute.toggle() }
+            PadButton(title: "M", on: m.mixer.channels[i].mute, color: Theme.mute, help: "Mute channel \(i + 1) (Shift: this channel only)", axID: "mute.\(i + 1)") {
+                m.toggle(i, \.mute, single: NSEvent.modifierFlags.contains(.shift))
             }
-            PadButton(title: "S", on: m.mixer.channels[i].solo, color: Theme.solo, help: "Solo channel \(i + 1)", axID: "solo.\(i + 1)") {
-                set(i, linked) { $0.solo.toggle() }
+            PadButton(title: "S", on: m.mixer.channels[i].solo, color: Theme.solo, help: "Solo channel \(i + 1) (Shift: this channel only)", axID: "solo.\(i + 1)") {
+                m.toggle(i, \.solo, single: NSEvent.modifierFlags.contains(.shift))
             }
         }
     }
 
-    private func auxKnob(_ i: Int, _ k: Int, _ linked: Bool) -> some View {
-        let b = Binding<Double>(get: { FaderCurve.pos(m.mixer.channels[i].aux[k]) }, set: { p in
-            let db = FaderCurve.db(p)
-            m.mixer.channels[i].aux[k] = db
-            if linked { m.mixer.channels[i ^ 1].aux[k] = db }
-        })
+    private func auxKnob(_ i: Int, _ k: Int) -> some View {
+        let b = Binding<Double>(get: { FaderCurve.pos(m.mixer.channels[i].aux[k]) },
+                                set: { m.setLevel(i, FaderCurve.db($0), aux: k, single: NSEvent.modifierFlags.contains(.shift)) })
         return Knob(value: b, color: Theme.aux, dimmed: m.mixer.auxMuted(k), resetValue: 0, optionResetValue: FaderCurve.pos(0),
+                    onBegin: { m.beginDrag(i, aux: k) }, onEnd: { m.endDrag() },
+                    onReset: { m.setLevel(i, FaderCurve.db($0), aux: k, single: true) },
                     text: dbText(m.mixer.channels[i].aux[k]),
-                    help: "Channel \(i + 1) send to aux \(k + 1) (pre-fader). Right-click: off, Option+right-click: 0 dB",
+                    help: "Channel \(i + 1) send to aux \(k + 1) (pre-fader). Shift-drag: this channel only. Right-click: off, Option+right-click: 0 dB",
                     axID: "aux\(k + 1).\(i + 1)")
     }
 
-    private func panKnob(_ i: Int, _ linked: Bool) -> some View {
+    private func panKnob(_ i: Int) -> some View {
         let pan = m.mixer.channels[i].pan
         let b = Binding<Double>(get: { (pan + 1) / 2 }, set: { m.mixer.channels[i].pan = $0 * 2 - 1 })
         let txt = abs(pan) < 0.01 ? "C" : (pan < 0 ? "L" : "R") + "\(Int((abs(pan) * 100).rounded()))"
-        let def = (m.defaultPan(i) + 1) / 2
-        return Knob(value: b, color: Theme.pan, bipolar: true, resetValue: def, text: txt,
-                    help: "Channel \(i + 1) pan. Right-click: \(linked ? (i % 2 == 0 ? "L100" : "R100") : "center")",
+        let def = m.defaultPan(i)
+        return Knob(value: b, color: Theme.pan, bipolar: true, resetValue: (def + 1) / 2, text: txt,
+                    help: "Channel \(i + 1) pan. Right-click: \(def < 0 ? "L100" : def > 0 ? "R100" : "center")",
                     axID: "pan.\(i + 1)")
-    }
-
-    private func levelBinding(_ i: Int, _ linked: Bool) -> Binding<Double> {
-        Binding(get: { m.mixer.channels[i].level }, set: { v in
-            m.mixer.channels[i].level = v
-            if linked { m.mixer.channels[i ^ 1].level = v }
-        })
-    }
-
-    private func set(_ i: Int, _ linked: Bool, _ f: (inout ChannelStrip) -> Void) {
-        var mx = m.mixer
-        f(&mx.channels[i])
-        if linked { mx.channels[i ^ 1].mute = mx.channels[i].mute; mx.channels[i ^ 1].solo = mx.channels[i].solo }
-        m.mixer = mx
     }
 
     // MARK: master
 
     private var masterColumn: some View {
         VStack(alignment: .leading, spacing: Self.rowGap) {
+            Text("MIXER OUT").font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.text).frame(height: Self.srcH)
             HStack(alignment: .top, spacing: 4) {
                 LEDMeter(tap: m.meter(mixerOut: 0)).frame(width: 18)
                 LEDMeter(tap: m.meter(mixerOut: 1)).frame(width: 18)
                 DBScale(marks: MeterScale.marks, pos: { MeterScale.frac(db: $0) }, topInset: MeterScale.clipH + MeterScale.clipGap,
                         alignment: .leading)
                     .frame(width: 22)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("MIXER OUT").font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.text)
-                    Text("L  R").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.dim)
-                }
+                Text("L  R").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.dim)
             }
             .frame(height: Self.meterH, alignment: .top)
             ForEach(0..<m.auxRows, id: \.self) { r in
@@ -586,7 +590,7 @@ struct MixerView: View {
                 Text("OUTPUT").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.dim)
                 BusOutputMenu(bus: 0, width: 140)
             }
-            .frame(height: Self.srcH)
+            .frame(height: Self.numH + Self.rowGap + Self.nameH)
         }
         .padding(.vertical, 8).padding(.horizontal, 8)
         .frame(width: Self.masterW, alignment: .leading)
@@ -594,32 +598,76 @@ struct MixerView: View {
     }
 }
 
-/// Channel number + input source menu (like the original's numbered channel buttons).
-struct SourceButton: View {
+/// Channel name (stored with the mixer settings). Shown as a label; click to edit, Return or
+/// clicking elsewhere ends editing. No text field exists until then, so it can't catch stray typing.
+struct NameField: View {
+    @EnvironmentObject var m: ProFireModel
+    let index: Int
+    @State private var editing = false
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let name = m.mixer.channels[index].name ?? ""
+        ZStack {
+            RoundedRectangle(cornerRadius: 3).fill(Theme.well)
+            if editing {
+                TextField("", text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .multilineTextAlignment(.center)
+                    .focused($focused)
+                    .onSubmit { commit() }
+                    .onChange(of: focused) { _, f in if !f { commit() } }
+                    .onExitCommand { editing = false }
+                    .padding(.horizontal, 2)
+            } else {
+                Text(name.isEmpty ? InputMenu.shortName(m.mixer.channels[index].source) : name)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(name.isEmpty ? Theme.dim.opacity(0.7) : Theme.text)
+                    .lineLimit(1).padding(.horizontal, 2)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if !editing { text = name; editing = true; DispatchQueue.main.async { focused = true } } }
+        .help("Channel \(index + 1) name: click to edit")
+        .accessibilityElement(children: editing ? .contain : .ignore)
+        .accessibilityLabel("Channel \(index + 1) name")
+        .accessibilityValue(name)
+        .accessibilityIdentifier("name.\(index + 1)")
+    }
+
+    private func commit() {
+        guard editing else { return }
+        editing = false
+        let t = text.trimmingCharacters(in: .whitespaces)
+        if t != (m.mixer.channels[index].name ?? "") { m.mixer.channels[index].name = t.isEmpty ? nil : t }
+    }
+}
+
+/// Input source menu at the top of each strip (like the original's channel source buttons).
+struct InputMenu: View {
     @EnvironmentObject var m: ProFireModel
     let index: Int
     var body: some View {
         let src = m.mixer.channels[index].source
-        VStack(spacing: 1) {
-            Text("\(index + 1)").font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.text).frame(height: 14)
-            Menu {
-                ForEach(MixerSources.groups, id: \.0) { group in
-                    Section(group.0) {
-                        ForEach(group.1, id: \.self) { s in
-                            Button(s.name) { m.mixer.channels[index].source = s }
-                        }
+        Menu {
+            ForEach(MixerSources.groups, id: \.0) { group in
+                Section(group.0) {
+                    ForEach(group.1, id: \.self) { s in
+                        Button(s.name) { m.mixer.channels[index].source = s }
                     }
                 }
-            } label: {
-                Text(Self.shortName(src)).font(.system(size: 9, weight: .medium)).lineLimit(1)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 44, height: 15)
-            .background(RoundedRectangle(cornerRadius: 3).fill(Color(white: 0.24)))
-            .accessibilityIdentifier("source.\(index + 1)")
+        } label: {
+            Text(Self.shortName(src)).font(.system(size: 9, weight: .medium)).lineLimit(1)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 44, height: 16)
+        .background(RoundedRectangle(cornerRadius: 3).fill(Color(white: 0.24)))
         .help("Channel \(index + 1) input: \(src.name)")
+        .accessibilityIdentifier("source.\(index + 1)")
     }
 
     static func shortName(_ s: Signal) -> String {

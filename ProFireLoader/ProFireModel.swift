@@ -18,11 +18,13 @@ struct ChannelStrip: Codable, Equatable {
     var mute = false
     var solo = false
     var aux = [Double](repeating: kSilenceDB, count: 7)
+    var name: String? = nil          // user label
 }
 
 struct MixerSettings: Codable, Equatable {
     var channels: [ChannelStrip]
-    var link: [Bool]                 // per channel pair
+    var link: [Bool]                 // per channel pair (old format; groups supersede it)
+    var groups: [Int]? = nil         // per channel: link group id, 0 = not linked
     var masterLevel: Double = 0      // dB, applied to the master mix
     var masterMute: Bool? = nil
     var auxMute: [Bool]? = nil       // per aux send bus
@@ -34,7 +36,9 @@ struct MixerSettings: Codable, Equatable {
         // Channels 1-8 analog, 9-16 ADAT A, 17-18 S/PDIF coax, in linked pairs at 0 dB.
         var ch = [ChannelStrip]()
         for i in 0..<channelCount { ch.append(ChannelStrip(source: Dest.mixerIn(i).defaultSource, level: 0, pan: i % 2 == 0 ? -1 : 1)) }
-        return MixerSettings(channels: ch, link: [Bool](repeating: true, count: channelCount / 2))
+        var mx = MixerSettings(channels: ch, link: [Bool](repeating: true, count: channelCount / 2))
+        mx.groups = (0..<channelCount).map { $0 / 2 + 1 }
+        return mx
     }
     /// Older saved settings had 16 channels.
     mutating func normalise() {
@@ -43,6 +47,21 @@ struct MixerSettings: Codable, Equatable {
             channels.append(ChannelStrip(source: Dest.mixerIn(i).defaultSource, level: 0, pan: i % 2 == 0 ? -1 : 1))
         }
         while link.count < MixerSettings.channelCount / 2 { link.append(true) }
+        if groups == nil { groups = (0..<MixerSettings.channelCount).map { link[$0 / 2] ? $0 / 2 + 1 : 0 } }
+        while groups!.count < MixerSettings.channelCount { groups!.append(0) }
+    }
+
+    func group(_ i: Int) -> Int { groups.map { i < $0.count ? $0[i] : 0 } ?? 0 }
+    /// Channels moving together with channel i (just [i] when it isn't linked).
+    func members(_ i: Int) -> [Int] {
+        let g = group(i)
+        return g == 0 ? [i] : (0..<channels.count).filter { group($0) == g }
+    }
+    /// Groups with a single member are no group.
+    mutating func dissolveSingletons() {
+        guard var g = groups else { return }
+        for id in Set(g) where id != 0 && g.filter({ $0 == id }).count < 2 { for j in g.indices where g[j] == id { g[j] = 0 } }
+        groups = g
     }
 }
 
@@ -287,13 +306,85 @@ final class ProFireModel: ObservableObject {
     /// Pan is the channel's own setting, linked or not (a linked pair defaults to L100/R100).
     private func linkedPan(_ i: Int) -> Double { mixer.channels[i].pan }
 
-    /// Pan default: center for a mono (unlinked) channel, hard left/right for a linked pair.
-    func defaultPan(_ i: Int) -> Double { mixer.link[i / 2] ? (i % 2 == 0 ? -1 : 1) : 0 }
+    /// Pan default: hard left/right in a two-channel link (lower channel left), center otherwise.
+    func defaultPan(_ i: Int) -> Double {
+        let mem = mixer.members(i)
+        return mem.count == 2 ? (i == mem.min() ? -1 : 1) : 0
+    }
 
-    func setLink(_ pair: Int, _ on: Bool) {
+    // MARK: link groups
+
+    func link(_ chans: Set<Int>) {
+        guard chans.count >= 2 else { return }
         var mx = mixer
-        mx.link[pair] = on
-        if on { mx.channels[pair * 2].pan = -1; mx.channels[pair * 2 + 1].pan = 1 }
+        var g = mx.groups ?? [Int](repeating: 0, count: mx.channels.count)
+        let id = (g.max() ?? 0) + 1
+        for c in chans { g[c] = id }
+        mx.groups = g
+        mx.dissolveSingletons()
+        if chans.count == 2 { let s = chans.sorted(); mx.channels[s[0]].pan = -1; mx.channels[s[1]].pan = 1 }
+        mixer = mx
+    }
+
+    func unlink(_ chans: Set<Int>) {
+        var mx = mixer
+        var g = mx.groups ?? []
+        for c in chans where c < g.count { g[c] = 0 }
+        mx.groups = g
+        mx.dissolveSingletons()
+        mixer = mx
+    }
+
+    /// Every channel on its own, panned center.
+    func allMono() {
+        var mx = mixer
+        mx.groups = [Int](repeating: 0, count: mx.channels.count)
+        for i in mx.channels.indices { mx.channels[i].pan = 0 }
+        mixer = mx
+    }
+
+    /// 1/2, 3/4, ... linked, panned L100/R100.
+    func stereoPairs() {
+        var mx = mixer
+        mx.groups = mx.channels.indices.map { $0 / 2 + 1 }
+        for i in mx.channels.indices { mx.channels[i].pan = i % 2 == 0 ? -1 : 1 }
+        mixer = mx
+    }
+
+    // MARK: relative group moves (faders and aux sends)
+
+    /// Values of the group at the start of a drag, so offsets survive hitting a limit mid-drag.
+    private var dragStart: [Int: Double]?
+
+    func beginDrag(_ i: Int, aux k: Int? = nil) {
+        dragStart = Dictionary(uniqueKeysWithValues: mixer.members(i).map { j in (j, k.map { mixer.channels[j].aux[$0] } ?? mixer.channels[j].level) })
+    }
+    func endDrag() { dragStart = nil }
+
+    /// Set channel i's fader (aux k: its send) to db; linked channels move by the same number of dB,
+    /// keeping their offsets. `single` (Shift) moves only channel i.
+    func setLevel(_ i: Int, _ db: Double, aux k: Int? = nil, single: Bool = false) {
+        var mx = mixer
+        func get(_ j: Int) -> Double { k.map { mx.channels[j].aux[$0] } ?? mx.channels[j].level }
+        func put(_ j: Int, _ v: Double) { if let k { mx.channels[j].aux[k] = v } else { mx.channels[j].level = v } }
+        let mem = single ? [i] : mx.members(i)
+        if mem.count > 1 {
+            let start = dragStart ?? Dictionary(uniqueKeysWithValues: mem.map { ($0, get($0)) })
+            let delta = db - (start[i] ?? get(i))
+            for j in mem where j != i {
+                let v = (start[j] ?? get(j)) + delta
+                put(j, v <= kSilenceDB ? kSilenceDB : min(12, v))
+            }
+        }
+        put(i, db)
+        mixer = mx
+    }
+
+    /// Mute / solo: the whole group follows (Shift: only this channel).
+    func toggle(_ i: Int, _ kp: WritableKeyPath<ChannelStrip, Bool>, single: Bool = false) {
+        var mx = mixer
+        let v = !mx.channels[i][keyPath: kp]
+        for j in (single ? [i] : mx.members(i)) { mx.channels[j][keyPath: kp] = v }
         mixer = mx
     }
 
@@ -536,7 +627,7 @@ final class ProFireModel: ObservableObject {
             let savedMixer = mixer, savedRouter = router
             var mx = MixerSettings.factory
             for i in 0..<16 { mx.channels[i].mute = true }
-            mx.link[0] = false
+            mx.groups?[0] = 0; mx.groups?[1] = 0
             mx.channels[0] = ChannelStrip(source: .adatBIn(0), level: -6, pan: 0)
             mixer = mx
             setPair(.adatA34, .mixerMaster)

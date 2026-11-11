@@ -84,7 +84,10 @@ if args.count > 1 && args[1] == "winsize" {
     exit(0)
 }
 if args.count > 1 && args[1] == "dump" {
-    for e in collect() { print(e.key, Int(e.frame.minX), Int(e.frame.minY), Int(e.frame.width), Int(e.frame.height)) }
+    let only = args.count > 2 ? Set(args[2...]) : nil
+    for e in collect() where only == nil || only!.contains(e.key) {
+        print(e.key, Int(e.frame.minX), Int(e.frame.minY), Int(e.frame.width), Int(e.frame.height), (attr(e.el, kAXValueAttribute) as? String) ?? "")
+    }
     exit(0)
 }
 
@@ -120,6 +123,47 @@ for (label, key, kind) in steps {
         let u = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)!; u.setIntegerValueField(.mouseEventClickState, value: 2); u.post(tap: .cghidEventTap)
         usleep(400_000)
     case "menu": click(p); usleep(300_000); escape()
+    case "sclick", "cclick":
+        let fl: CGEventFlags = kind == "sclick" ? .maskShift : .maskCommand
+        for t in [CGEventType.leftMouseDown, .leftMouseUp] {
+            let ev = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .left)!
+            ev.flags = fl; ev.post(tap: .cghidEventTap); usleep(40_000)
+        }
+        usleep(350_000)
+    case "sdrag-", "sdrag+":
+        let dy: CGFloat = kind == "sdrag-" ? -40 : 40
+        func ev(_ t: CGEventType, _ q: CGPoint) { let e = CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: q, mouseButton: .left)!; e.flags = .maskShift; e.post(tap: .cghidEventTap) }
+        ev(.leftMouseDown, p); usleep(50_000)
+        for i in 1...10 { ev(.leftMouseDragged, CGPoint(x: p.x, y: p.y + dy * CGFloat(i) / 10)); usleep(20_000) }
+        ev(.leftMouseUp, CGPoint(x: p.x, y: p.y + dy)); usleep(350_000)
+    case let k where k.hasPrefix("rmenu"):      // right-click, then pick menu item N (1-based) with arrows
+        let n = Int(k.dropFirst(5)) ?? 1
+        for t in [CGEventType.rightMouseDown, .rightMouseUp] {
+            CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .right)!.post(tap: .cghidEventTap); usleep(40_000)
+        }
+        usleep(400_000)
+        let src = CGEventSource(stateID: .hidSystemState)
+        for _ in 0..<n { CGEvent(keyboardEventSource: src, virtualKey: 125, keyDown: true)?.post(tap: .cghidEventTap); CGEvent(keyboardEventSource: src, virtualKey: 125, keyDown: false)?.post(tap: .cghidEventTap); usleep(120_000) }
+        CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: true)?.post(tap: .cghidEventTap); CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: false)?.post(tap: .cghidEventTap)
+        usleep(400_000)
+    case let k where k.hasPrefix("type:"):
+        click(p)
+        let src = CGEventSource(stateID: .hidSystemState)
+        // select all + delete first, so the field ends up holding exactly the text
+        let a1 = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true)!; a1.flags = .maskCommand; a1.post(tap: .cghidEventTap)
+        let a2 = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false)!; a2.flags = .maskCommand; a2.post(tap: .cghidEventTap)
+        usleep(50_000)
+        CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: true)?.post(tap: .cghidEventTap); CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: false)?.post(tap: .cghidEventTap)
+        usleep(50_000)
+        for ch in k.dropFirst(5).utf16 {
+            for down in [true, false] {
+                let e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)!
+                var c = ch; e.keyboardSetUnicodeString(stringLength: 1, unicodeString: &c); e.post(tap: .cghidEventTap)
+            }
+            usleep(30_000)
+        }
+        CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: true)?.post(tap: .cghidEventTap); CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: false)?.post(tap: .cghidEventTap)
+        usleep(300_000)
     case "rclick", "orclick":
         let flags: CGEventFlags = kind == "orclick" ? .maskAlternate : []
         for t in [CGEventType.rightMouseDown, .rightMouseUp] {
