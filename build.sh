@@ -23,8 +23,8 @@ xcodegen generate -q
 # matching even while macOS still has stale personalities of older versions.
 BUILDNUM=$(( $(cat .buildnum 2>/dev/null || echo 10) + 1 ))
 echo $BUILDNUM > .buildnum
-VERARGS=(MARKETING_VERSION="0.5.$BUILDNUM" CURRENT_PROJECT_VERSION="$BUILDNUM")
-echo "build $BUILDNUM (version 0.5.$BUILDNUM)"
+VERARGS=(MARKETING_VERSION="${SERIES:-0.6}.$BUILDNUM" CURRENT_PROJECT_VERSION="$BUILDNUM")
+echo "build $BUILDNUM (version ${SERIES:-0.6}.$BUILDNUM)"
 /usr/libexec/PlistBuddy -c "Set :IOKitPersonalities:ProFireOHCI:IOProbeScore $((10000 + BUILDNUM))" ProFireOHCI/Info.plist
 
 APP=build/Build/Products/Debug/ProFireLoader.app
