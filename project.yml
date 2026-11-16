@@ -42,7 +42,7 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: ProFireLoader
-        excludes: ["*.entitlements"]
+        excludes: ["*.entitlements", "Icon/**"]
     dependencies:
       - target: ProFireOHCI
         embed: true
@@ -53,6 +53,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: local.profire.Loader
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: ProFire Control
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         CODE_SIGN_ENTITLEMENTS: ProFireLoader/ProFireLoader.entitlements
         ENABLE_HARDENED_RUNTIME: YES

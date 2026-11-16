@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- ProFire Control app icon (original artwork). macOS grid: 824 pt body inset 100 pt. -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3a40"/>
+      <stop offset="0.5" stop-color="#232327"/>
+      <stop offset="1" stop-color="#141416"/>
+    </linearGradient>
+    <radialGradient id="fire" cx="0.5" cy="1.05" r="0.75">
+      <stop offset="0" stop-color="#ff7a1f" stop-opacity="0.85"/>
+      <stop offset="0.35" stop-color="#ff4d1a" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ff4d1a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="0.25" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="well" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#08080a"/>
+      <stop offset="1" stop-color="#101013"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f4f6"/>
+      <stop offset="0.45" stop-color="#c9c9ce"/>
+      <stop offset="0.5" stop-color="#8d8d93"/>
+      <stop offset="1" stop-color="#d8d8dc"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="squircle"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+
+  <!-- body -->
+  <g filter="url(#shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#body)"/>
+  </g>
+  <g clip-path="url(#squircle)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#fire)"/>
+  </g>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="url(#rim)" stroke-width="3"/>
+
+  <!-- three channel strips: LED meter ladder + fader -->
+  <!-- meter wells -->
+  <g fill="url(#well)">
+    <rect x="232" y="210" width="96" height="430" rx="22"/>
+    <rect x="464" y="210" width="96" height="430" rx="22"/>
+    <rect x="696" y="210" width="96" height="430" rx="22"/>
+  </g>
+
+  <!-- LED segments: 9 per meter, 38 tall, 10 gap, from y=596 upward -->
+  <g filter="url(#glow)">
+    <!-- meter 1: 6 lit -->
+    <g>
+      <rect x="248" y="596" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="248" y="550" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="248" y="504" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="248" y="458" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="248" y="412" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="248" y="366" width="64" height="30" rx="7" fill="#fdd43d"/>
+    </g>
+    <!-- meter 2: 9 lit (peak) -->
+    <g>
+      <rect x="480" y="596" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="480" y="550" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="480" y="504" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="480" y="458" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="480" y="412" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="480" y="366" width="64" height="30" rx="7" fill="#fdd43d"/>
+      <rect x="480" y="320" width="64" height="30" rx="7" fill="#fdd43d"/>
+      <rect x="480" y="274" width="64" height="30" rx="7" fill="#ff7a1f"/>
+      <rect x="480" y="228" width="64" height="30" rx="7" fill="#ff453d"/>
+    </g>
+    <!-- meter 3: 4 lit -->
+    <g>
+      <rect x="712" y="596" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="712" y="550" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="712" y="504" width="64" height="30" rx="7" fill="#45dc66"/>
+      <rect x="712" y="458" width="64" height="30" rx="7" fill="#45dc66"/>
+    </g>
+  </g>
+  <!-- unlit segments -->
+  <g fill="#ffffff" fill-opacity="0.07">
+    <rect x="248" y="320" width="64" height="30" rx="7"/>
+    <rect x="248" y="274" width="64" height="30" rx="7"/>
+    <rect x="248" y="228" width="64" height="30" rx="7"/>
+    <rect x="712" y="412" width="64" height="30" rx="7"/>
+    <rect x="712" y="366" width="64" height="30" rx="7"/>
+    <rect x="712" y="320" width="64" height="30" rx="7"/>
+    <rect x="712" y="274" width="64" height="30" rx="7"/>
+    <rect x="712" y="228" width="64" height="30" rx="7"/>
+  </g>
+
+  <!-- fader tracks -->
+  <g fill="#050506">
+    <rect x="272" y="676" width="16" height="190" rx="8"/>
+    <rect x="504" y="676" width="16" height="190" rx="8"/>
+    <rect x="736" y="676" width="16" height="190" rx="8"/>
+  </g>
+  <!-- fader caps -->
+  <g filter="url(#shadow)">
+    <rect x="226" y="776" width="108" height="56" rx="12" fill="url(#cap)"/>
+    <rect x="458" y="700" width="108" height="56" rx="12" fill="url(#cap)"/>
+    <rect x="690" y="802" width="108" height="56" rx="12" fill="url(#cap)"/>
+  </g>
+  <g fill="#ff7a1f">
+    <rect x="234" y="801" width="92" height="6" rx="3"/>
+    <rect x="466" y="725" width="92" height="6" rx="3"/>
+    <rect x="698" y="827" width="92" height="6" rx="3"/>
+  </g>
+</svg>
