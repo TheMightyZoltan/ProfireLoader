@@ -22,6 +22,8 @@
 		996E969DA2EFCDF7F7BBE39B /* ProFireAudioDevice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 426FE4F15352B498ED1FDDC1 /* ProFireAudioDevice.cpp */; };
 		9A4ED6A9003A616FEA090F18 /* ProFireUserClient.iig in Sources */ = {isa = PBXBuildFile; fileRef = BFF54663BCF16B365550B3C8 /* ProFireUserClient.iig */; };
 		A7848B24187E4BDC0474FE5C /* Ports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3063F85E6E1CE530C6429ED7 /* Ports.swift */; };
+		C8E07CC185721A8D54945D05 /* ProFireUnit.iig in Sources */ = {isa = PBXBuildFile; fileRef = D69E6C31EAA6243A90CD6AF7 /* ProFireUnit.iig */; };
+		DD06ADEB2658C950891DB891 /* ProFireUnit.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AC84969C7982C8761E135E48 /* ProFireUnit.cpp */; };
 		E15BE70922ABE9E7AD8397CB /* MixerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD70898E1301FC3BDA999A51 /* MixerPanel.swift */; };
 		F0FF4AC13C3595A5E8CBA7AB /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A24FC02CD0A37E3BDF3B5F3 /* Views.swift */; };
 		F1D775FFD63787D1CACE42C8 /* ProFireUserClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7FCC780537C34EC13AA808E0 /* ProFireUserClient.cpp */; };
@@ -73,9 +75,11 @@
 		960EB0331A540D1450C46EA3 /* FWController.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FWController.cpp; sourceTree = "<group>"; };
 		9A24FC02CD0A37E3BDF3B5F3 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		A20E5035066E744086B8803E /* DeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceManager.swift; sourceTree = "<group>"; };
+		AC84969C7982C8761E135E48 /* ProFireUnit.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ProFireUnit.cpp; sourceTree = "<group>"; };
 		B08BE9842A18061E89DE254C /* Dice.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Dice.cpp; sourceTree = "<group>"; };
 		B4F574AD258D197A659933DB /* ProFireLoaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProFireLoaderApp.swift; sourceTree = "<group>"; };
 		BFF54663BCF16B365550B3C8 /* ProFireUserClient.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = ProFireUserClient.iig; sourceTree = "<group>"; };
+		D69E6C31EAA6243A90CD6AF7 /* ProFireUnit.iig */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.iig; path = ProFireUnit.iig; sourceTree = "<group>"; };
 		FC4F3C9F5805377D8898260D /* Common.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Common.cpp; sourceTree = "<group>"; };
 		FD70898E1301FC3BDA999A51 /* MixerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixerPanel.swift; sourceTree = "<group>"; };
 		FDAF1DF352DBA103B93E4E71 /* OHCI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OHCI.h; sourceTree = "<group>"; };
@@ -132,6 +136,8 @@
 				3F5CBA667A2CF163B348ED9A /* ProFireAudioDevice.iig */,
 				67BEFF04DC2EAE187A073811 /* ProFireOHCI.cpp */,
 				290B39DDE6C2D28F11D299FF /* ProFireOHCI.iig */,
+				AC84969C7982C8761E135E48 /* ProFireUnit.cpp */,
+				D69E6C31EAA6243A90CD6AF7 /* ProFireUnit.iig */,
 				7FCC780537C34EC13AA808E0 /* ProFireUserClient.cpp */,
 				BFF54663BCF16B365550B3C8 /* ProFireUserClient.iig */,
 			);
@@ -229,6 +235,8 @@
 				F5759C844BDBEFA4CA871504 /* ProFireAudioDevice.iig in Sources */,
 				3156758B7F5F8B6FE9166587 /* ProFireOHCI.cpp in Sources */,
 				0318402BF006E1F711376747 /* ProFireOHCI.iig in Sources */,
+				DD06ADEB2658C950891DB891 /* ProFireUnit.cpp in Sources */,
+				C8E07CC185721A8D54945D05 /* ProFireUnit.iig in Sources */,
 				F1D775FFD63787D1CACE42C8 /* ProFireUserClient.cpp in Sources */,
 				9A4ED6A9003A616FEA090F18 /* ProFireUserClient.iig in Sources */,
 			);
