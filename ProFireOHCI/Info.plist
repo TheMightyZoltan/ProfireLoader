@@ -33,7 +33,7 @@
 			<key>IOPCITunnelCompatible</key>
 			<true/>
 			<key>IOProbeScore</key>
-			<integer>10088</integer>
+			<integer>10089</integer>
 			<key>IOProviderClass</key>
 			<string>IOPCIDevice</string>
 			<key>IOUserAudioDriverUserClientProperties</key>
@@ -47,6 +47,15 @@
 			<string>ProFireOHCI</string>
 			<key>IOUserServerName</key>
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>ProFireUnitProperties</key>
+			<dict>
+				<key>IOClass</key>
+				<string>IOUserService</string>
+				<key>IOUserClass</key>
+				<string>ProFireUnit</string>
+				<key>ProFireUnit</key>
+				<true/>
+			</dict>
 			<key>ProFireUserClientProperties</key>
 			<dict>
 				<key>IOClass</key>

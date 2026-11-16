@@ -56,6 +56,7 @@ Measured device facts, used by the app:
 - **Optical port B is one port with two modes.** Routing anything to the S/PDIF-optical transmitter (AES channels 7/8, the "TOS" transmitter) while the port is in ADAT mode corrupts the ADAT B *input*: measured as bursts of silence. The app removes the inactive side's routes, so in ADAT mode there are no AES1 destinations, and in S/PDIF mode there are no ADAT B outputs. Switching the mode re-applies the router.
 - **Router entry order matters.** The firmware drives the front-panel input signal/peak LEDs from fixed peak-meter slots: entries 1–8 must carry analog inputs 1–8 (at power-on they are `Analog In k → Computer In k`). A router written in another order (sorted by destination, say) leaves the LEDs watching other signals until a power cycle. The app always writes analog inputs first, then computer inputs, outputs and mixer inputs, like the ProFire's own list. The gain knobs are firmware-read too ("gainADC") but don't depend on the router.
 - **IT start (FW643):** starting the transmit contexts with cycleMatch stopped working on 2026-11-11: the contexts stayed armed (run set, never active) through restarts, reboots, dock replugs and ProFire power cycles, so the ProFire got no stream (silent outputs, flashing power LED). The driver now starts IT immediately and reads the cycle each stream's slot 0 actually went out in (OUTPUT_LAST status timestamp), and maps all packet timing to that. `pfctl itdiag` dumps cycle timer, LinkControl and every IT context; `pfctl forceroot` / `unforceroot` make the Mac bus root (cycle master) or release it. A ~1 s transient remains when streaming starts from idle; a running stream is glitch-free.
+- **Opens automatically:** the driver publishes a `ProFireUnit` service while a ProFire is on the bus. The LaunchAgent `local.profire.autolaunch` (installed by the pkg) matches it and runs `Contents/Helpers/profire-launch`, which opens ProFire Control unless it's already running or the Driver tab's 'Open ProFire Control when a ProFire is connected' is off.
 - **Installer:** `tools/make-installer.sh <ver>` builds a .pkg that requires a restart, because macOS can't reliably replace a running dext (a half-finished upgrade left no launchable driver until reboot).
 - **Rate changes** stop audio for about 2.5 s (two clock re-selects); an occasional single glitch a few seconds after a switch is still open. Steady-state 44.1–96 kHz loopbacks are glitch-free.
 - **Mixer:** 18 inputs × 16 outputs. Coefficient `(out, in)` is at mixer quadlet `1 + out·18 + in`, linear 16-bit, `0x4000` = 0 dB, `0xFFFF` ≈ +12 dB. The mixer region rejects block reads.
@@ -164,6 +165,9 @@ Linux `sound/firewire/dice/*` and FFADO `src/dice/` (including `src/dice/maudio/
 
 ```bash
 open /Applications/ProFireLoader.app --args --deactivate
+launchctl bootout gui/$(id -u)/local.profire.autolaunch
+sudo rm /Library/LaunchAgents/local.profire.autolaunch.plist
+sudo rm -rf /Applications/ProFireLoader.app
 ```
 
 ## License and notices

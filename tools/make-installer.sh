@@ -10,12 +10,17 @@ APP=build/Build/Products/Debug/ProFireLoader.app
 [[ -d $APP ]] || { echo "build first: ./build.sh"; exit 1; }
 FULL=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
 OUT=build/release; WORK=build/pkgwork
-rm -rf $WORK; mkdir -p $WORK/root/Applications $WORK/scripts $WORK/res $OUT
+rm -rf $WORK; mkdir -p $WORK/root/Applications $WORK/root/Library/LaunchAgents $WORK/scripts $WORK/res $OUT
 ditto "$APP" $WORK/root/Applications/ProFireLoader.app
+# Opens ProFire Control when the driver reports a ProFire (see tools/profire-launch.swift).
+cp tools/launchd/local.profire.autolaunch.plist $WORK/root/Library/LaunchAgents/
+chmod 644 $WORK/root/Library/LaunchAgents/local.profire.autolaunch.plist
 
 cat > $WORK/scripts/preinstall <<'EOF'
 #!/bin/sh
 pkill -x ProFireLoader 2>/dev/null
+USER_ID=$(id -u "$(stat -f %Su /dev/console)")
+launchctl bootout gui/$USER_ID/local.profire.autolaunch 2>/dev/null
 exit 0
 EOF
 
@@ -29,6 +34,10 @@ fi
 # Ask the system to activate the embedded driver, as the logged-in user.
 USER_NAME=$(stat -f %Su /dev/console)
 USER_ID=$(id -u "$USER_NAME")
+# Auto-open agent: load it now for the logged-in user (later logins load it automatically).
+chown root:wheel /Library/LaunchAgents/local.profire.autolaunch.plist
+chmod 644 /Library/LaunchAgents/local.profire.autolaunch.plist
+launchctl bootstrap gui/$USER_ID /Library/LaunchAgents/local.profire.autolaunch.plist 2>/dev/null || true
 launchctl asuser "$USER_ID" sudo -u "$USER_NAME" open -n /Applications/ProFireLoader.app --args --activate || true
 exit 0
 EOF

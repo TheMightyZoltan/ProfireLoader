@@ -45,6 +45,14 @@ else
     --entitlements ProFireLoader/ProFireLoader.entitlements "$APP"
 fi
 
+# Auto-open helper (started by the local.profire.autolaunch LaunchAgent when a ProFire appears).
+mkdir -p "$APP/Contents/Helpers"
+swiftc -O -target arm64-apple-macos15.0 -o "$APP/Contents/Helpers/profire-launch" tools/profire-launch.swift
+codesign --force --sign - --timestamp=none "$APP/Contents/Helpers/profire-launch"
+if [[ -z "${TEAM:-}" ]]; then
+  codesign --force --sign - --timestamp=none \
+    --entitlements ProFireLoader/ProFireLoader.entitlements "$APP"
+fi
 codesign --verify --deep --strict "$APP" && echo "Signature OK"
 clang -O2 -o build/pfctl tools/pfctl.c -framework IOKit -framework CoreFoundation && echo "Built: build/pfctl"
 echo

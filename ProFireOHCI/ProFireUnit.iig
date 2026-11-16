@@ -1,0 +1,18 @@
+//
+//  ProFireUnit.iig
+//  Published while a ProFire is present on the bus, so launchd (IOKit matching) can open
+//  ProFire Control when a ProFire is connected. It has no behaviour of its own.
+//
+
+#ifndef ProFireUnit_h
+#define ProFireUnit_h
+
+#include <DriverKit/IOService.iig>
+
+class ProFireUnit: public IOService
+{
+public:
+    virtual kern_return_t Start(IOService * provider) override;
+};
+
+#endif /* ProFireUnit_h */

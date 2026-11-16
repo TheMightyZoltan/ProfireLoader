@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>local.profire.autolaunch</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Applications/ProFireLoader.app/Contents/Helpers/profire-launch</string>
+	</array>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>LaunchEvents</key>
+	<dict>
+		<key>com.apple.iokit.matching</key>
+		<dict>
+			<key>local.profire.unit</key>
+			<dict>
+				<key>IOProviderClass</key>
+				<string>IOUserService</string>
+				<key>IOPropertyMatch</key>
+				<dict>
+					<key>ProFireUnit</key>
+					<true/>
+				</dict>
+				<key>IOMatchLaunchStream</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>

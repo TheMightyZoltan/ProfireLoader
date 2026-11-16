@@ -47,6 +47,7 @@ struct ProFireOHCI_IVars {
     OSAction *hkAction = nullptr, *pumpAction = nullptr;
 
     OSSharedPtr<ProFireAudioDevice> device;
+    IOService *unit = nullptr;          // ProFireUnit nub while a ProFire is present
     OSSharedPtr<IOUserAudioStream> inStream, outStream;
     OSSharedPtr<IOBufferMemoryDescriptor> inBuf, outBuf;
     float *inRing = nullptr, *outRing = nullptr;
@@ -245,6 +246,22 @@ static void createAudioDevice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
         uid, iv->inCh, iv->outCh, uint32_t(iv->rate), ret);
 }
 
+// Publish / remove the ProFireUnit nub that launchd matches on to open ProFire Control.
+static void setUnitPublished(ProFireOHCI *self, ProFireOHCI_IVars *iv, bool on)
+{
+    if (on && !iv->unit) {
+        IOService *u = nullptr;
+        kern_return_t r = self->Create(self, "ProFireUnitProperties", &u);
+        if (r == kIOReturnSuccess && u) { iv->unit = u; LOG("ProFireUnit published"); }
+        else LOG("ProFireUnit create failed 0x%x", r);
+    } else if (!on && iv->unit) {
+        IOService *u = iv->unit; iv->unit = nullptr;
+        u->Terminate(0);
+        u->release();
+        LOG("ProFireUnit removed");
+    }
+}
+
 static void findDice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
 {
     for (int i = 0; i < iv->fw.nRemote; i++) {
@@ -261,11 +278,13 @@ static void findDice(ProFireOHCI *self, ProFireOHCI_IVars *iv)
             char name[96]; deviceName(iv, name, sizeof(name));
             iv->device->SetName(PFSTR(name));          // nickname may have changed
         } else createAudioDevice(self, iv);
+        setUnitPublished(self, iv, true);
         return;
     }
     if (iv->diceFound) LOG("ProFire no longer on the bus");
     iv->diceFound = false;
     if (iv->device) iv->device->SetDeviceIsAlive(false);
+    setUnitPublished(self, iv, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +441,7 @@ void IMPL(ProFireOHCI, HousekeepingFired)
         LOG("controller vanished (dock unplugged?)");
         iv->fwUp = false;
         if (iv->device) iv->device->SetDeviceIsAlive(false);
+        setUnitPublished(this, iv, false);
         return;
     }
     if (iv->fw.pollBusReset() && iv->fw.generation != iv->lastGen) {
@@ -739,6 +759,7 @@ kern_return_t IMPL(ProFireOHCI, Stop)
         iv->pumpTimer = nullptr; iv->pumpAction = nullptr;
         t->Cancel(^{ t->release(); if (a) a->release(); });
     }
+    setUnitPublished(this, iv, false);
     if (iv->device) { RemoveObject(iv->device.get()); iv->device.reset(); }
     if (iv->fwUp) iv->fw.stop();
     iv->fwUp = false;

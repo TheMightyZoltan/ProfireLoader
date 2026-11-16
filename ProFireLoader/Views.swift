@@ -338,6 +338,7 @@ struct DriverView: View {
     @EnvironmentObject var ext: ExtensionManager
     @EnvironmentObject var m: ProFireModel
     @State private var v = DriverVersions()
+    @AppStorage("autoOpen") private var autoOpen = true
     var body: some View {
         Form {
             Section("Versions") {
@@ -365,6 +366,12 @@ struct DriverView: View {
                         .font(.callout).foregroundStyle(.orange)
                 }
                 Button("Refresh") { v = DriverVersions.load() }
+            }
+            Section("Startup") {
+                Toggle("Open ProFire Control when a ProFire is connected", isOn: $autoOpen)
+                    .accessibilityIdentifier("autoopen")
+                Text("Opens this app when a ProFire is switched on or plugged in, and at login if one is already connected. Needs the launch agent the installer adds (/Library/LaunchAgents/local.profire.autolaunch.plist).")
+                    .font(.callout).foregroundStyle(.secondary)
             }
             Section("Streaming") {
                 Toggle("Keep the stream running when no app plays", isOn: $devices.keepStreaming)
