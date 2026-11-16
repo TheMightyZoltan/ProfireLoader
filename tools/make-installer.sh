@@ -1,12 +1,15 @@
 #!/bin/zsh
 # Build the release installer from the current build (run ./build.sh first):
 #   tools/make-installer.sh 0.5
+#   APP=/path/ProFireLoader.app tools/make-installer.sh 0.6.92
 # Produces build/release/ProFire2626-<ver>.pkg (app + embedded driver, activates the
 # driver after install) and ProFireControl-<ver>.zip (the app alone).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VER=${1:?usage: make-installer.sh <version>}
-APP=build/Build/Products/Debug/ProFireLoader.app
+# APP=... packages another bundle, e.g. the current app with the already-installed driver
+# (app-only update: the installer then keeps the running driver, no driver upgrade).
+APP=${APP:-build/Build/Products/Debug/ProFireLoader.app}
 [[ -d $APP ]] || { echo "build first: ./build.sh"; exit 1; }
 FULL=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
 OUT=build/release; WORK=build/pkgwork
