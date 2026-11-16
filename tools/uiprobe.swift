@@ -118,6 +118,10 @@ for (label, key, kind) in steps {
     switch kind {
     case "drag-": drag(p, dy: -40)
     case "drag+": drag(p, dy: 40)
+    case "slowdrag":     // hold the mouse down for ~4 s while moving slowly (meter-freeze test)
+        mouse(.leftMouseDown, p); usleep(50_000)
+        for i in 0..<80 { mouse(.leftMouseDragged, CGPoint(x: p.x, y: p.y - 20 + CGFloat(i % 40))); usleep(50_000) }
+        mouse(.leftMouseUp, p); usleep(350_000)
     case "dbl": mouse(.leftMouseDown, p); mouse(.leftMouseUp, p)
         let d = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: p, mouseButton: .left)!; d.setIntegerValueField(.mouseEventClickState, value: 2); d.post(tap: .cghidEventTap)
         let u = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)!; u.setIntegerValueField(.mouseEventClickState, value: 2); u.post(tap: .cghidEventTap)

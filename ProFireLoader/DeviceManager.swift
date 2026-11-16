@@ -29,7 +29,9 @@ final class DeviceManager: ObservableObject {
         peakHold = d.object(forKey: "peakHold") != nil ? d.double(forKey: "peakHold") : 3
         keepStreaming = d.object(forKey: "keepStreaming") as? Bool ?? true
         scan()
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.scan() } }
+        let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.scan() } }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     /// Track driver instances: a model per instance; a placeholder (service 0 = "first one")

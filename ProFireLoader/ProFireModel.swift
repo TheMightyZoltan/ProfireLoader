@@ -201,9 +201,13 @@ final class ProFireModel: ObservableObject {
                 persist()
             }
         }
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.poll() }
+        // .common mode: a plain scheduled timer only runs in the default mode, so the meters
+        // froze while a knob or fader was being dragged (event-tracking mode).
+        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.poll() }
         }
+        RunLoop.main.add(t, forMode: .common)
+        pollTimer = t
     }
 
     /// Keep the FireWire stream running while no app plays (steady power LED, no start-up glitch).
@@ -248,6 +252,9 @@ final class ProFireModel: ObservableObject {
 
     // MARK: - polling
 
+    /// Debug: `defaults write local.profire.Loader debugMeterLog -bool YES` logs every meter update.
+    private static let meterLog = UserDefaults.standard.bool(forKey: "debugMeterLog")
+
     private func poll() {
         tick += 1
         if !connected {
@@ -274,6 +281,7 @@ final class ProFireModel: ObservableObject {
                     xs = try self.link.read(map.global + DICE.extStatus)
                 }
                 DispatchQueue.main.async {
+                    if Self.meterLog { NSLog("meterupdate %.3f", Date().timeIntervalSince1970) }
                     self.meters.update(src: src, dst: dst)
                     if let info {
                         if self.locked != info.locked { self.locked = info.locked }
