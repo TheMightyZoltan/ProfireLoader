@@ -13,6 +13,7 @@ final class ExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     @Published var status = "Idle"
 
     func activate() {
+        sameVersion = false
         status = "Requesting activation…"
         let req = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: dextIdentifier, queue: .main)
         req.delegate = self
@@ -29,9 +30,17 @@ final class ExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     func request(_ request: OSSystemExtensionRequest,
                  actionForReplacingExtension existing: OSSystemExtensionProperties,
                  withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
+        // Re-activating the version that is already installed would still put the running driver
+        // into "terminating for upgrade via delegate", and until a restart no newly connected
+        // FireWire controller could start the driver. Only replace a different build.
+        if existing.bundleVersion == ext.bundleVersion && existing.bundleShortVersion == ext.bundleShortVersion {
+            sameVersion = true
+            return .cancel
+        }
         status = "Replacing \(existing.bundleShortVersion) with \(ext.bundleShortVersion)…"
         return .replace
     }
+    private var sameVersion = false
 
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
         status = "Approve it in System Settings › General › Login Items & Extensions › Driver Extensions."
@@ -47,6 +56,11 @@ final class ExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
         let ns = error as NSError
+        if sameVersion && ns.domain == OSSystemExtensionErrorDomain && ns.code == OSSystemExtensionError.requestCanceled.rawValue {
+            sameVersion = false
+            status = "This driver version is already installed; nothing to do."
+            return
+        }
         status = "Failed: \(ns.localizedDescription) (\(ns.domain) \(ns.code))"
     }
 }

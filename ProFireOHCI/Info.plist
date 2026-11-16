@@ -33,7 +33,7 @@
 			<key>IOPCITunnelCompatible</key>
 			<true/>
 			<key>IOProbeScore</key>
-			<integer>10087</integer>
+			<integer>10088</integer>
 			<key>IOProviderClass</key>
 			<string>IOPCIDevice</string>
 			<key>IOUserAudioDriverUserClientProperties</key>
